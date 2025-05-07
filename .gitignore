@@ -1,0 +1,9 @@
+*.db
+talkflowchat.db
+
+talkflowchat.db
+
+env
+.env
+node_modules
+
