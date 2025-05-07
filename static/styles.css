@@ -1,0 +1,619 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+.bg-brownish {
+    background-color: #4A4039;
+}
+
+.bg-light-purple {
+    background-color: #E6E6FA;
+}
+
+.text-dark-gray {
+    color: #333333;
+}
+
+#new-chat-modal, #new-group-modal, #new-conversation-modal {
+    transition: opacity 0.3s ease, transform 0.3s ease;
+    opacity: 0;
+    transform: scale(0.95);
+}
+
+#new-chat-modal:not(.hidden), #new-group-modal:not(.hidden), #new-conversation-modal:not(.hidden) {
+    opacity: 1;
+    transform: scale(1);
+}
+
+.user-suggestion {
+    padding: 10px;
+    cursor: pointer;
+    border-bottom: 1px solid #e5e7eb;
+    background-color: #ffffff;
+    transition: background-color 0.2s ease;
+}
+
+.user-suggestion:hover {
+    background-color: #f3f4f6;
+}
+
+#user-suggestions {
+    border: 1px solid #e5e7eb;
+    border-radius: 0.5rem;
+    background-color: #ffffff;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    max-height: 200px;
+    overflow-y: auto;
+}
+
+/* Message styles */
+.message {
+    user-select: none;
+    -webkit-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
+    position: relative;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    max-width: 65%;
+    padding: 10px 14px;
+    border-radius: 20px;
+    font-size: 0.9rem;
+    margin-top: 8px;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+}
+#message-list {
+    background-color: #D2D5F9 !important; /* New chat background color */
+    border-radius: 24px; /* Larger rounded corners */
+    margin: 8px; /* Add spacing from edges */
+    box-shadow: none; /* Remove inner shadow */
+    padding: 16px !important; /* Increased padding */
+}
+
+.message.self-end {
+    background-color: #0057FF; /* Bright blue from the image */
+    color: white;
+    margin-left: auto;
+    border-radius: 18px; /* More rounded corners */
+    font-size: 1rem; /* Slightly larger font */
+    box-shadow: none; /* Remove shadow */
+    padding: 12px 16px; /* Adjusted padding */
+}
+
+.message.self-start {
+    background-color: #FFFFFF !important;
+    color: #050505;
+    margin-right: auto;
+}
+
+.message.selected {
+    transform: scale(1.02);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+}
+
+.message.highlight {
+    animation: pulse-highlight 1.5s ease-out;
+    z-index: 10;
+}
+
+@keyframes scaleIn {
+    from {
+        opacity: 0;
+        transform: scale(0.95);
+    }
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+@keyframes highlight {
+    0%, 100% {
+        background-color: inherit;
+    }
+    50% {
+        background-color: rgba(66, 153, 225, 0.3);
+    }
+}
+
+@keyframes pulse-highlight {
+    0% {
+        transform: scale(1);
+        box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.4);
+    }
+    50% {
+        transform: scale(1.03);
+        box-shadow: 0 0 0 8px rgba(59, 130, 246, 0);
+    }
+    100% {
+        transform: scale(1);
+        box-shadow: 0 0 0 0 rgba(59, 130, 246, 0);
+    }
+}
+
+.message-actions {
+    transition: opacity 0.2s;
+}
+
+.message-container:hover .message-actions {
+    opacity: 1;
+}
+
+.deleted {
+    font-style: italic;
+    opacity: 0.7;
+}
+
+.reply-preview {
+    border-left: 3px solid rgba(255,255,255,0.5);
+    padding-left: 6px;
+}
+
+#reply-container, #edit-container {
+    display: flex;
+    align-items: center;
+    padding: 8px 12px;
+    border-radius: 8px;
+    margin-bottom: 8px;
+    animation: slideDown 0.3s ease-out;
+}
+
+#reply-preview, #edit-preview {
+    flex: 1;
+    margin-right: 12px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+#cancel-reply, #cancel-edit {
+    padding: 4px;
+    border-radius: 50%;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+#cancel-reply:hover, #cancel-edit:hover {
+    background-color: #e5e7eb;
+}
+
+@keyframes slideDown {
+    from {
+        transform: translateY(-20px);
+        opacity: 0;
+    }
+    to {
+        transform: translateY(0);
+        opacity: 1;
+    }
+}
+
+#message-actions-modal > div {
+    min-width: 8rem;
+}
+
+#message-actions-modal {
+    animation: fadeIn 0.2s ease-out;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: scale(0.95);
+    }
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+.message-context-menu {
+    position: fixed;
+    background: white;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+    border-radius: 8px;
+    min-width: 150px;
+    z-index: 1000;
+    animation: scaleIn 0.15s ease-out;
+}
+
+.message-context-menu button {
+    width: 100%;
+    padding: 8px 16px;
+    text-align: left;
+    border: none;
+    background: none;
+    cursor: pointer;
+    font-size: 14px;
+}
+
+.message-context-menu button:hover {
+    background-color: #f3f4f6;
+}
+
+@keyframes scaleIn {
+    from {
+        opacity: 0;
+        transform: scale(0.95);
+    }
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+#message-actions-modal button {
+    transition: background-color 0.2s;
+    width: 100%;
+    text-align: left;
+}
+
+#message-actions-modal button:hover {
+    background-color: rgba(0,0,0,0.05);
+}
+
+/* Styling for the reply box shown above the message content */
+.reply-box {
+    position: relative;
+    opacity: 0.9;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    border-left: 3px solid;
+    margin-bottom: 8px;
+    padding: 6px 8px;
+    border-radius: 12px;
+    font-size: 0.85em;
+}
+
+/* Improved reply box styling with better colors */
+.reply-box.self-end {
+    border-color: rgba(255, 255, 255, 0.6);
+    background-color: rgba(255, 255, 255, 0.2);
+}
+
+.reply-box.self-start {
+    border-color: rgba(37, 99, 235, 0.5);
+    background-color: rgba(37, 99, 235, 0.05);
+}
+
+.reply-box:hover {
+    opacity: 1;
+    transform: translateY(-1px);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.reply-box .font-semibold {
+    opacity: 0.8;
+}
+
+.reply-box .pl-3 {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 90%;
+}
+
+/* Reply preview in input area styling */
+#reply-container {
+    background-color: #f0f4ff;
+    border-left: 3px solid #2563eb;
+    border-radius: 10px 10px 0 0;
+    transition: all 0.3s ease;
+    box-shadow: 0 -2px 5px rgba(0, 0, 0, 0.05);
+    padding: 10px 16px;
+}
+
+#reply-container.hidden {
+    transform: translateY(10px);
+    opacity: 0;
+}
+
+#reply-container:not(.hidden) {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    animation: slideDown 0.2s ease-out;
+}
+
+#reply-preview {
+    padding-left: 8px;
+    position: relative;
+    color: #4b5563;
+    font-size: 0.9rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 90%;
+}
+
+#reply-preview::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 2px;
+    height: 70%;
+    background-color: #2563eb;
+}
+
+#cancel-reply {
+    color: #9ca3af;
+    border-radius: 50%;
+    width: 24px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+}
+
+#cancel-reply:hover {
+    background-color: #e5e7eb;
+    color: #4b5563;
+}
+
+/* Message being replied to highlight animation */
+.message-being-replied-to {
+    animation: replyHighlight 2s ease infinite;
+}
+
+@keyframes replyHighlight {
+    0%, 100% {
+        box-shadow: 0 0 0 rgba(59, 130, 246, 0);
+    }
+    50% {
+        box-shadow: 0 0 5px 2px rgba(59, 130, 246, 0.3);
+    }
+}
+
+/* Adjust read status icon */
+.message-status-icon {
+    font-size: 0.7rem;
+    letter-spacing: -0.15em;
+    color: white;
+    margin-left: 3px;
+}
+
+/* Smooth scrolling for message list */
+#message-list {
+    scroll-behavior: smooth;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding-right: 10px;
+    scrollbar-width: thin;
+    scrollbar-color: #cbd5e0 transparent;
+    padding: 20px;
+    background-color: #FFFFFF;
+    border-radius: 8px;
+    box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+#message-list::-webkit-scrollbar {
+    width: 6px;
+}
+
+#message-list::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+#message-list::-webkit-scrollbar-thumb {
+    background-color: #cbd5e0;
+    border-radius: 3px;
+}
+
+.message-content {
+    word-break: break-word;
+    
+}
+
+.message-timestamp {
+    position: relative; /* Changed from absolute */
+    font-size: 0.7rem; /* Smaller font size */
+    color: rgba(255, 255, 255, 0.7); /* Light white color */
+    opacity: 0.9;
+    margin-top: 2px; /* Add small margin top */
+    display: block; /* Make it a block element */
+    text-align: right; /* Right align */
+}
+
+.message.self-end .message-timestamp {
+    color: rgba(255, 255, 255, 0.7); /* Light white color */
+}
+
+.message.self-end .message-timestamp:after {
+    content: " · Read"; /* Add "Read" text after timestamp */
+    font-size: 0.7rem;
+}
+
+/* Chat list items */
+#chat-list > div, #chat-list-profile > div {
+    display: flex;
+    align-items: center;
+    padding: 8px;
+    border-radius: 8px;
+    transition: background-color 0.2s ease;
+    background-color: #FFFFFF; /* Add white background */
+}
+
+#chat-list > div:hover, #chat-list-profile > div:hover {
+    background-color: #f3f4f6; /* Light gray on hover */
+}
+
+#chat-list > div.bg-brownish, #chat-list-profile > div.bg-brownish {
+    background-color: #e5e7eb !important; /* Override for specific state */
+}
+
+#chat-list > div.bg-blue-600, #chat-list-profile > div.bg-blue-600 {
+    background-color: #2563eb !important; /* Selected state */
+}
+
+#chat-list img, #chat-list-profile img {
+    width: 48px;
+    height: 48px;
+    border-radius: 16px;
+    margin-right: 12px;
+}
+
+#chat-list h4, #chat-list-profile h4 {
+    color: #1f2937;
+    font-weight: 600;
+    font-size: 0.9rem;
+}
+
+#chat-list p, #chat-list-profile p {
+    color: #6b7280;
+    font-size: 0.8rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* Unread count */
+#chat-list .unread-count, #chat-list-profile .unread-count {
+    margin-left: auto;
+    background-color: #2563eb;
+    color: white;
+    font-size: 0.7rem;
+    padding: 2px 6px;
+    border-radius: 9999px;
+}
+
+#new-conversation-modal .bg-white {
+    background-color: #f0f0ff;
+    border-radius: 12px;
+    padding: 8px;
+}
+
+#new-conversation-modal button {
+    font-size: 0.9rem;
+    font-weight: 500;
+}
+
+#chat-list > div.bg-blue-600, #chat-list-profile > div.bg-blue-600 {
+    background-color: #2563eb !important;
+}
+
+#chat-list > div.bg-blue-600 h4,
+#chat-list-profile > div.bg-blue-600 h4,
+#chat-list > div.bg-blue-600 p,
+#chat-list-profile > div.bg-blue-600 p {
+    color: #ffffff !important;
+}
+
+/* Увеличиваем специфичность для выбранного чата */
+#chat-list > div.bg-blue-600 *,
+#chat-list-profile > div.bg-blue-600 * {
+    color: #ffffff !important;
+}
+
+#menu-modal {
+    top: 50px;
+    left: 230px;
+    background-color: #f0f0ff;
+    border-radius: 12px;
+    padding: 8px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+    width: 150px;
+}
+
+#menu-modal button {
+    font-size: 0.9rem;
+    font-weight: 500;
+    color: #1e40af;
+    background-color: transparent;
+    transition: background-color 0.2s ease;
+}
+
+#menu-modal button:hover {
+    background-color: #e0e7ff;
+}
+
+/* New Group Modal - User Chips */
+#new-group-added-users .inline-flex {
+    transition: background-color 0.2s ease;
+}
+
+#new-group-added-users button {
+    transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+/* New Group Modal - User Suggestions Dropdown */
+#new-group-user-suggestions {
+    border-top: none;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+    transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+#new-group-user-suggestions > div {
+    border-bottom: 1px solid #e5e7eb;
+    transition: background-color 0.15s ease;
+}
+
+#new-group-user-suggestions > div:last-child {
+    border-bottom: none;
+}
+
+#new-group-user-suggestions > div:hover {
+    background-color: #f0f9ff;
+}
+
+/* --- Add Active Call Modal Styles --- */
+#active-call-modal {
+    /* Base styles are handled by Tailwind classes */
+    /* Add custom transition if needed */
+    transition: opacity 0.3s ease, transform 0.3s ease;
+}
+
+#active-call-modal:not(.hidden) {
+    /* Ensure animation runs when shown */
+    animation: fadeIn 0.3s ease-out;
+}
+
+/* Optional: Add specific styles for elements if Tailwind isn't enough */
+#active-call-avatar {
+    /* Example: Add a subtle glow */
+    box-shadow: 0 0 15px rgba(255, 255, 255, 0.3);
+}
+
+#active-hang-up-btn {
+    /* Example: Add slight scale on hover/active */
+    transition: background-color 0.2s, transform 0.2s;
+}
+
+#active-hang-up-btn:hover {
+    transform: scale(1.05);
+}
+
+#active-hang-up-btn:active {
+    transform: scale(0.98);
+}
+
+#mute-call-btn {
+    transition: background-color 0.2s, transform 0.2s;
+}
+
+#mute-call-btn:hover {
+    transform: scale(1.05);
+}
+
+#mute-call-btn:active {
+    transform: scale(0.98);
+}
+
+/* Keyframes for fade-in (if not already defined) */
+@keyframes fadeIn {
+    from { opacity: 0; transform: scale(0.95); }
+    to { opacity: 1; transform: scale(1); }
+}
+
+/* Keyframes for scale animation (if needed and not using Tailwind's animate-fade-scale) */
+@keyframes scaleIn {
+    from { opacity: 0; transform: scale(0.9); }
+    to { opacity: 1; transform: scale(1); }
+}
+
+.animate-fade-scale {
+    animation: scaleIn 0.2s ease-out;
+}
