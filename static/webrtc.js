@@ -1,4 +1,4 @@
-import { initializeSocket } from './socket.js';
+import { initializeSocket, getSocket } from './socket.js';
 import { currentUserId, showToast } from './chat.js'; // Assuming showToast is exported from chat.js or utils.js
 
 // --- DOM Elements (Declare vars here, assign in init) ---
@@ -514,13 +514,18 @@ function handleCallError(data) {
 }
 
 // --- Event Listeners ---
+function setupWebRTCListeners(socket) {
+    if (!socket) {
+        console.error('Cannot set up WebRTC listeners: socket is null');
+        return;
+    }
 
-function setupWebRTCListeners() {
     // Ensure elements exist before adding listeners
     if (!hangUpBtn || !acceptCallBtn || !rejectCallBtn || !activeHangUpBtn || !muteCallBtn) {
         console.warn("UI elements not yet initialized in setupWebRTCListeners");
         return;
     }
+
     // UI Listeners
     // Old hangup button (used during 'calling' state)
     hangUpBtn.addEventListener('click', hangUpCall);
@@ -532,80 +537,42 @@ function setupWebRTCListeners() {
     muteCallBtn.addEventListener('click', toggleMute);
 
     // Socket Listeners
-    if (socket) {
-        console.log("Setting up WebRTC socket listeners...");
-        socket.on('incoming_call', handleIncomingCall);
-        socket.on('call_response', handleCallResponse);
-        socket.on('webrtc_signal', handleWebRTCSignal);
-        socket.on('call_ended', handleCallEnded);
-        socket.on('call_unavailable', handleCallUnavailable);
-        socket.on('call_error', handleCallError);
-    } else {
-        console.error("Socket not initialized, cannot set up WebRTC listeners.");
-    }
+    console.log("Setting up WebRTC socket listeners...");
+    socket.on('incoming_call', handleIncomingCall);
+    socket.on('call_response', handleCallResponse);
+    socket.on('webrtc_signal', handleWebRTCSignal);
+    socket.on('call_ended', handleCallEnded);
+    socket.on('call_unavailable', handleCallUnavailable);
+    socket.on('call_error', handleCallError);
 }
 
 // --- Initialization ---
-// Accept ALL required elements as parameters
-function initializeWebRTC(initParams) {
-    console.log("Initializing WebRTC module with provided elements...");
-
-    // --- Assign provided elements --- 
-    localAudioEl = initParams.localAudioElement;
-    remoteAudioEl = initParams.remoteAudioElement;
-    callBtn = initParams.callBtn;
-    callStatusDiv = initParams.callStatusDiv;
-    callStatusText = initParams.callStatusText;
-    hangUpBtn = initParams.hangUpBtn; // Old status bar hangup
-    incomingCallModal = initParams.incomingCallModal;
-    callerNameEl = initParams.callerNameEl;
-    callerAvatarEl = initParams.callerAvatarEl;
-    acceptCallBtn = initParams.acceptCallBtn;
-    rejectCallBtn = initParams.rejectCallBtn;
-    activeCallModal = initParams.activeCallModal;
-    activeCallAvatar = initParams.activeCallAvatar;
-    activeCallUsername = initParams.activeCallUsername;
-    activeCallTimer = initParams.activeCallTimer;
-    muteCallBtn = initParams.muteCallBtn;
-    activeHangUpBtn = initParams.activeHangUpBtn;
-    micIconUnmuted = initParams.micIconUnmuted;
-    micIconMuted = initParams.micIconMuted;
-
-    // --- Detailed Check for Essential Elements --- 
-    const elementChecks = {
-        localAudioEl: !!localAudioEl,
-        remoteAudioEl: !!remoteAudioEl,
-        callBtn: !!callBtn,
-        callStatusDiv: !!callStatusDiv,
-        hangUpBtn: !!hangUpBtn,
-        incomingCallModal: !!incomingCallModal,
-        acceptCallBtn: !!acceptCallBtn,
-        rejectCallBtn: !!rejectCallBtn,
-        activeCallModal: !!activeCallModal,
-        muteCallBtn: !!muteCallBtn,
-        activeHangUpBtn: !!activeHangUpBtn,
-        micIconUnmuted: !!micIconUnmuted,
-        micIconMuted: !!micIconMuted
-    };
-
-    let allFound = true;
-    for (const [key, found] of Object.entries(elementChecks)) {
-        if (!found) {
-            console.error(`[WebRTC Init] Failed to find element: ${key}`);
-            allFound = false;
-        }
+export async function initializeWebRTC(params) {
+    console.log('Initializing WebRTC module with provided elements...');
+    
+    // Reset call state
+    resetCallState();
+    
+    // Initialize socket if not already initialized
+    const socket = await initializeSocket();
+    if (!socket) {
+        console.error('Socket not initialized, cannot set up WebRTC listeners.');
+        return;
     }
 
-    if (!allFound) {
-        console.error("Failed to find one or more UI control elements during WebRTC initialization! Check IDs in index.html and assignments in chat.js.");
-        showToast("Error initializing call UI components.", "error");
-        // Decide if this is critical enough to stop
-        // return; // Optionally stop initialization if critical elements are missing
-    }
-
-    resetCallState(); // Ensure clean state on init
-    setupWebRTCListeners();
+    // Set up WebRTC event listeners
+    setupWebRTCListeners(socket);
+    
+    // Update UI based on initial state
+    updateWebRTCUI('idle');
+    
+    // Store UI elements
+    storeUIElements(params);
 }
 
 // --- Exports ---
-export { initializeWebRTC, startCall, currentCall, updateUI as updateWebRTCUI }; // Export necessary functions and state
+export { 
+    startCall, 
+    currentCall, 
+    updateUI as updateWebRTCUI 
+};
