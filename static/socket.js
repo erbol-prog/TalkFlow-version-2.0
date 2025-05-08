@@ -1,82 +1,49 @@
 import { currentConversationId, loadConversations, currentUserId, createMessageElement, updateMessageReadStatus } from './chat.js'; // Import updateMessageReadStatus
 
-// Create socket connection with proper authentication
-function createSocketConnection() {
-    const token = localStorage.getItem('token');
-    if (!token) {
-        console.error('No authentication token available');
-        return null;
-    }
+// Track connected users
+export const connected_users = new Map();
 
-    console.log('Creating socket connection with token');
-
-    const socketInstance = io('/', {
-        auth: {
-            token: token
-        },
-        transports: ['websocket'],
-        reconnection: true,
-        reconnectionAttempts: 5,
-        reconnectionDelay: 1000,
-        autoConnect: false
-    });
-
-    // Setup basic event handlers before connecting
-    socketInstance.on('connect_error', (error) => {
-        if (error.message && error.message.includes('auth')) {
-            console.error('Authentication error. Token may be invalid.');
-            localStorage.removeItem('token');
-            window.location.reload(); // Reload to show login screen
-            return;
-        }
-        console.error("Connection error:", error);
-    });
-
-    // Attempt connection
-    socketInstance.connect();
-    return socketInstance;
-}
-
-// Initialize socket as null - we'll create it when needed
 let socket = null;
 let activeRooms = []; // Track which conversation rooms we've joined
 let socketInitialized = false;
 let pendingMessages = [];
 
 // Initialize socket connection
-async function initializeSocket() {
+export async function initializeSocket() {
+    if (socket?.connected) {
+        return socket;
+    }
+
+    console.log('Creating socket connection with token');
     const token = localStorage.getItem('token');
     if (!token) {
         console.error('No token available for socket connection');
         return null;
     }
 
-    if (socket && socket.connected) {
-        return socket;
-    }
-
     try {
-        socket = createSocketConnection();
-        if (!socket) {
-            throw new Error('Failed to create socket connection');
-        }
+        // Import socket.io-client dynamically
+        const { io } = await import('https://cdn.socket.io/4.7.2/socket.io.esm.min.js');
 
-        // Set up basic event listeners
-        socket.on('disconnect', () => {
-            console.log('Socket disconnected');
+        socket = io({
+            auth: { token },
+            transports: ['websocket'],
+            reconnection: true,
+            reconnectionAttempts: 5,
+            reconnectionDelay: 1000
         });
 
-        socket.on('error', (error) => {
-            console.error('Socket error:', error);
+        socket.on('connect', () => {
+            console.log('Socket connected successfully');
         });
 
-        // Send any pending messages
-        if (pendingMessages.length > 0) {
-            pendingMessages.forEach(msg => {
-                socket.emit('message', msg);
-            });
-            pendingMessages = [];
-        }
+        socket.on('connect_error', (error) => {
+            console.error('Socket connection error:', error);
+        });
+
+        socket.on('disconnect', (reason) => {
+            console.log('Socket disconnected:', reason);
+        });
 
         return socket;
     } catch (error) {
@@ -86,27 +53,33 @@ async function initializeSocket() {
 }
 
 // Function to join a conversation
-async function joinConversation(conversationId) {
+export async function joinConversation(conversationId) {
+    const socket = await initializeSocket();
+    if (!socket) {
+        console.error('Cannot join conversation: socket not initialized');
+        return;
+    }
+
     try {
-        const socket = await initializeSocket();
-        if (!socket) {
-            throw new Error('Socket not initialized');
-        }
-
-        // Leave previous conversation rooms
-        if (activeRooms.length > 0) {
-            activeRooms.forEach(roomId => {
-                socket.emit('leave_room', { conversation_id: roomId });
-            });
-            activeRooms = [];
-        }
-
-        // Join new conversation
-        socket.emit('join_conversation', { conversation_id: conversationId });
-        activeRooms.push(conversationId);
-        console.log('Joined conversation', conversationId);
+        await socket.emit('join_conversation', { conversation_id: conversationId });
+        console.log(`Joined conversation room: ${conversationId}`);
     } catch (error) {
         console.error('Error joining conversation:', error);
+    }
+}
+
+export async function leaveConversation(conversationId) {
+    const socket = await initializeSocket();
+    if (!socket) {
+        console.error('Cannot leave conversation: socket not initialized');
+        return;
+    }
+
+    try {
+        await socket.emit('leave_conversation', { conversation_id: conversationId });
+        console.log(`Left conversation room: ${conversationId}`);
+    } catch (error) {
+        console.error('Error leaving conversation:', error);
     }
 }
 
@@ -154,7 +127,7 @@ function setupSocketEvents() {
         if (err.message && err.message.includes("auth")) {
             console.log("Authentication error. Refreshing connection in 2 seconds...");
             setTimeout(() => {
-                socket = createSocketConnection();
+                socket = initializeSocket();
                 if (socket) {
                     setupSocketEvents();
                 }
@@ -352,11 +325,21 @@ async function sendMessage(messageData) {
     }
 }
 
+// Function to get the current socket instance
+function getSocket() {
+    return socket;
+}
+
+// Function to get connected users
+function getConnectedUsers() {
+    return Array.from(connected_users.values());
+}
+
 // Export functions and variables
 export {
-    initializeSocket,
-    joinConversation,
     sendMessage,
     isSocketConnected,
-    socket // Export the socket variable
+    socket,
+    getSocket,
+    getConnectedUsers
 };
