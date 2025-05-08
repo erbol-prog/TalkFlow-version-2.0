@@ -27,7 +27,7 @@ const showToast = (message, type = 'info') => {
 
 
 import { setupMessageHandlers, setupReplyUI, hideReplyUI, handleMessageClick, clearMessageSelection } from './messageHandlers.js';
-import { initializeSocket, joinConversation } from './socket.js';
+import { initializeSocket, joinConversation, connected_users } from './socket.js';
 import { showProfile } from './profile.js';
 import { initMessageInteractions, getReplyData } from './messageInteractions.js'; // Removed startReply import
 // --- ADD WEBRTC IMPORTS ---
@@ -136,6 +136,11 @@ async function setupSocketListeners() {
             if (data.conversation_id === currentConversationId) {
                 updateMessageReadStatus(data.message_ids);
             }
+        });
+
+        socket.on('user_status_change', (data) => {
+            const { user_id, status, last_seen } = data;
+            updateUserStatus(user_id, status, last_seen);
         });
 
         console.log('Socket listeners setup complete');
@@ -1100,25 +1105,18 @@ async function loadConversation(conversationId) {
     // --- Reset WebRTC state if a call is active --- 
     if (webRTCCallState.state !== 'idle') {
         console.log("Switching conversation during an active call. Ending the call.");
-        // Simulate hangup without emitting to the other user if connection is already broken
-        // Or call the hangUp function if it handles this gracefully
-        // hangUpCall(); // Assuming hangUpCall resets state correctly
-        // For safety, directly reset state here:
         if (typeof updateWebRTCUI === 'function') {
-            // Manually reset relevant parts if hangUpCall isn't suitable
             const hangUpBtn = document.getElementById('hang-up-btn');
             const callStatusDiv = document.getElementById('call-status');
             hangUpBtn?.classList.add('hidden');
             callStatusDiv?.classList.add('hidden');
-            // More comprehensive reset might be needed in webrtc.js
-            console.warn("Call state might need full reset in webrtc.js");
         }
     }
 
     // Visually indicate loading
     conversationNameEl.textContent = 'Loading...';
     messageList.innerHTML = '<div class="p-4 text-center text-gray-500">Loading messages...</div>';
-    callBtn.classList.add('hidden'); // Hide call button initially
+    callBtn.classList.add('hidden');
 
     try {
         // Update current conversation ID state
@@ -1126,12 +1124,13 @@ async function loadConversation(conversationId) {
 
         // Join the WebSocket room for this conversation
         await ensureSocketInitialized();
-        if (socket && socket.connected && typeof joinConversation === 'function') {
-            joinConversation(conversationId); // joinConversation should handle sending 'join_conversation' event
+        if (socket && socket.connected) {
+            await joinConversation(conversationId);
         } else {
-            console.warn("Socket not ready or joinConversation function not found when trying to join room.");
-            // Attempt to reconnect or wait? For now, proceed with fetch.
-            if (typeof initializeSocket === 'function') { initializeSocket(); } // Try initializing again
+            console.warn("Socket not ready when trying to join room.");
+            if (typeof initializeSocket === 'function') {
+                await initializeSocket();
+            }
         }
 
         const token = localStorage.getItem('token');
@@ -1143,7 +1142,7 @@ async function loadConversation(conversationId) {
         });
 
         if (!response.ok) {
-            if (response.status === 403) { // Forbidden
+            if (response.status === 403) {
                 showToast("You are not authorized to view this conversation.", "error");
             } else {
                 showToast("Failed to load messages.", "error");
@@ -1155,7 +1154,7 @@ async function loadConversation(conversationId) {
         console.log('Messages loaded for conversation', conversationId, messages);
 
         // --- Render Messages ---
-        messageList.innerHTML = ''; // Clear loading indicator
+        messageList.innerHTML = '';
         if (!messages || messages.length === 0) {
             const emptyMessage = document.createElement('div');
             emptyMessage.className = 'p-4 text-center text-gray-500 italic system-message';
@@ -1165,38 +1164,40 @@ async function loadConversation(conversationId) {
             messages.forEach(msg => {
                 const messageDiv = createMessageElement(msg);
                 if (messageDiv) {
-                    messageList.prepend(messageDiv); // Prepend because of flex-col-reverse
+                    messageList.prepend(messageDiv);
                 }
             });
-            // Scroll to the bottom (most recent message) after rendering
             messageList.scrollTop = messageList.scrollHeight;
         }
 
         // --- Update Conversation Header --- 
         const convData = conversations.find(c => c.id === conversationId);
         if (convData) {
-            // Use the name provided by the backend (should be correct now)
             conversationNameEl.textContent = convData.name;
-            // Update avatar based on conversation name (optional)
             if (conversationAvatarEl) {
                 conversationAvatarEl.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(convData.name)}&background=random&size=40`;
             }
 
             // --- Show/Hide Call Button --- 
-            // Use participant_details to check if it's a 1-on-1 chat
             if (convData.participant_details && convData.participant_details.length === 2) {
-                // Ensure the other participant is not the current user (handles self-chat case)
                 const otherParticipant = convData.participant_details.find(p => p.id !== currentUserId);
                 if (otherParticipant) {
                     callBtn.classList.remove('hidden');
+                    // Check if user is online
+                    const isOnline = Array.from(connected_users.values()).includes(otherParticipant.id);
+                    updateUserStatus(
+                        otherParticipant.id,
+                        isOnline ? 'online' : 'offline',
+                        otherParticipant.last_seen
+                    );
                 } else {
-                    callBtn.classList.add('hidden'); // It's a self-chat
+                    callBtn.classList.add('hidden');
                 }
             } else {
-                callBtn.classList.add('hidden'); // It's a group chat
+                callBtn.classList.add('hidden');
             }
         } else {
-            conversationNameEl.textContent = 'Chat'; // Fallback if convData not found
+            conversationNameEl.textContent = 'Chat';
             callBtn.classList.add('hidden');
         }
 
@@ -1213,7 +1214,7 @@ async function loadConversation(conversationId) {
         console.error(`Error loading conversation ${conversationId}:`, error);
         messageList.innerHTML = `<div class="p-4 text-center text-red-500">Error loading messages. Please try again.</div>`;
         conversationNameEl.textContent = 'Error';
-        callBtn.classList.add('hidden'); // Ensure button is hidden on error
+        callBtn.classList.add('hidden');
     }
 }
 
@@ -1324,7 +1325,7 @@ function createMessageElement(msg) {
                     timestampDiv.innerHTML = `
                         <span>${timeString}</span>
                         <span class="message-status-icon text-xs ${isRead ? 'text-blue-500' : 'text-gray-400'}">
-                            ${isRead ? '✔✔' : '✔'}
+                            ${isRead ? '✓✓' : '✓'}
                         </span>
                     `;
                 } else {
@@ -1484,6 +1485,75 @@ async function createNewChat(otherUserId) {
         console.error('Error creating chat:', error);
         showToast('Failed to create chat', 'error');
     }
+}
+
+// Add this function to handle user status updates
+function updateUserStatus(userId, status, lastSeen) {
+    // Update status in conversation header if this is the current conversation
+    if (currentConversationId) {
+        const conversation = conversations.find(conv => conv.id === currentConversationId);
+        if (conversation && conversation.participant_details) {
+            const otherParticipant = conversation.participant_details.find(p => p.id === userId);
+            if (otherParticipant) {
+                const statusElement = document.getElementById('user-status');
+                if (!statusElement) {
+                    // Create status element if it doesn't exist
+                    const headerDiv = document.querySelector('.conversation-header');
+                    if (headerDiv) {
+                        const newStatusElement = document.createElement('div');
+                        newStatusElement.id = 'user-status';
+                        newStatusElement.className = 'flex items-center text-sm';
+                        headerDiv.appendChild(newStatusElement);
+                    }
+                }
+                
+                if (statusElement) {
+                    if (status === 'online') {
+                        statusElement.innerHTML = `
+                            <span class="online-indicator"></span>
+                            <span class="text-green-600">Online</span>
+                        `;
+                    } else {
+                        const lastSeenDate = lastSeen ? new Date(lastSeen) : null;
+                        const lastSeenText = lastSeenDate ? 
+                            `Last seen ${formatLastSeen(lastSeenDate)}` : 
+                            'Offline';
+                        statusElement.innerHTML = `
+                            <span class="text-gray-500">${lastSeenText}</span>
+                        `;
+                    }
+                }
+            }
+        }
+    }
+}
+
+// Helper function to format last seen time
+function formatLastSeen(date) {
+    const now = new Date();
+    const diff = now - date;
+    
+    // Less than a minute
+    if (diff < 60000) {
+        return 'just now';
+    }
+    // Less than an hour
+    if (diff < 3600000) {
+        const minutes = Math.floor(diff / 60000);
+        return `${minutes} minute${minutes > 1 ? 's' : ''} ago`;
+    }
+    // Less than a day
+    if (diff < 86400000) {
+        const hours = Math.floor(diff / 3600000);
+        return `${hours} hour${hours > 1 ? 's' : ''} ago`;
+    }
+    // Less than a week
+    if (diff < 604800000) {
+        const days = Math.floor(diff / 86400000);
+        return `${days} day${days > 1 ? 's' : ''} ago`;
+    }
+    // Otherwise show the date
+    return date.toLocaleDateString();
 }
 
 // --- Exports ---
