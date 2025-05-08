@@ -409,22 +409,46 @@
 }
 
 .message-timestamp {
-    position: relative; /* Changed from absolute */
-    font-size: 0.7rem; /* Smaller font size */
-    color: rgba(255, 255, 255, 0.7); /* Light white color */
+    position: relative;
+    font-size: 0.7rem;
+    color: rgba(255, 255, 255, 0.7);
     opacity: 0.9;
-    margin-top: 2px; /* Add small margin top */
-    display: block; /* Make it a block element */
-    text-align: right; /* Right align */
+    margin-top: 2px;
+    display: block;
+    text-align: right;
 }
 
 .message.self-end .message-timestamp {
-    color: rgba(255, 255, 255, 0.7); /* Light white color */
+    color: rgba(255, 255, 255, 0.7);
 }
 
+/* Remove the "Read" text after timestamp */
 .message.self-end .message-timestamp:after {
-    content: " · Read"; /* Add "Read" text after timestamp */
+    content: "";
+}
+
+/* Adjust read status icon */
+.message-status-icon {
     font-size: 0.7rem;
+    letter-spacing: -0.15em;
+    color: white;
+    margin-left: 3px;
+}
+
+/* Add online indicator styles */
+.online-indicator {
+    width: 8px;
+    height: 8px;
+    background-color: #10B981;
+    border-radius: 50%;
+    display: inline-block;
+    margin-right: 6px;
+}
+
+.last-seen {
+    font-size: 0.75rem;
+    color: #6B7280;
+    margin-top: 2px;
 }
 
 /* Chat list items */
