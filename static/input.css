@@ -1,0 +1,28 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Custom styles */
+.message {
+    @apply max-w-[70%] p-3 mb-2 rounded-lg;
+}
+
+.message.self-end {
+    @apply bg-blue-500 text-white;
+}
+
+.message.self-start {
+    @apply bg-gray-200 text-gray-800;
+}
+
+.message-timestamp {
+    @apply text-xs text-gray-500 mt-1;
+}
+
+.online-indicator {
+    @apply w-2 h-2 bg-green-500 rounded-full mr-2;
+}
+
+.last-seen {
+    @apply text-xs text-gray-500;
+} 
