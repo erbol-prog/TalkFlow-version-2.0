@@ -52,6 +52,20 @@ def get_sid_by_user_id(user_id):
     return None
 
 
+# --- Helper to update user's last seen time ---
+def update_user_last_seen(user_id):
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter(User.id == user_id).first()
+        if user:
+            user.last_seen = datetime.utcnow()
+            db.commit()
+    except Exception as e:
+        print(f"Error updating last seen for user {user_id}: {e}")
+    finally:
+        db.close()
+
+
 @sio.event
 async def connect(sid, environ, auth=None):
     try:
@@ -94,8 +108,10 @@ async def connect(sid, environ, auth=None):
                     # Avoid revealing specific errors like "User not found" to client
                     raise JWTError("Invalid token: User validation failed")
 
-                # Store user connection AFTER successful validation
+                # Store user connection and update last seen
                 connected_users[sid] = user.id
+                user.last_seen = datetime.utcnow()
+                db.commit()
                 print(
                     f"User {user.username} (ID: {user.id}) connected with socket ID: {sid}"
                 )
@@ -110,6 +126,19 @@ async def connect(sid, environ, auth=None):
                     room_name = str(conv_participant.conversation_id)
                     await sio.enter_room(sid, room_name)
                     print(f"User {user.username} (sid: {sid}) joined room {room_name}")
+
+                # Broadcast user's online status to their conversations
+                for conv in conversations:
+                    room_name = str(conv.conversation_id)
+                    await sio.emit(
+                        "user_status_change",
+                        {
+                            "user_id": user.id,
+                            "status": "online",
+                            "last_seen": None
+                        },
+                        room=room_name
+                    )
 
                 # Connection successful
                 return True  # Indicate successful connection
@@ -146,9 +175,38 @@ async def disconnect(sid):
     if sid in connected_users:
         user_id = connected_users[sid]
         print(f"User ID {user_id} disconnected: {sid}")
+        
+        # Update last seen time
+        update_user_last_seen(user_id)
+        
+        # Get user's conversations before removing from connected_users
+        db = SessionLocal()
+        try:
+            conversations = (
+                db.query(ConversationParticipant)
+                .filter(ConversationParticipant.user_id == user_id)
+                .all()
+            )
+            
+            # Broadcast user's offline status to their conversations
+            for conv in conversations:
+                room_name = str(conv.conversation_id)
+                await sio.emit(
+                    "user_status_change",
+                    {
+                        "user_id": user_id,
+                        "status": "offline",
+                        "last_seen": datetime.utcnow().isoformat()
+                    },
+                    room=room_name
+                )
+        except Exception as e:
+            print(f"Error broadcasting offline status for user {user_id}: {e}")
+        finally:
+            db.close()
+            
         # Clean up user from connected_users map
         del connected_users[sid]
-        # Optionally, you might want to leave all rooms, though Socket.IO handles this
     else:
         print(f"Unknown client disconnected: {sid}")
 
