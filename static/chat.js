@@ -428,7 +428,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 micIconUnmuted: document.getElementById('mic-icon-unmuted'),
                 micIconMuted: document.getElementById('mic-icon-muted')
             };
-            
+
             const essentialElements = [localAudioElement, remoteAudioElement, callBtn, activeCallModal, muteCallBtn, activeHangUpBtn];
             if (essentialElements.every(el => el)) {
                 initializeWebRTC(webrtcInitParams);
@@ -554,12 +554,13 @@ document.addEventListener('DOMContentLoaded', async () => {
                 console.warn('showProfile function not found.');
             }
         });
-    }
-
-    // Profile loading from conversation header
+    }    // Profile loading from conversation header
     const conversationHeader = document.getElementById('conversation-header');
     if (conversationHeader) {
-        conversationHeader.addEventListener('click', async () => {
+        conversationHeader.addEventListener('click', async (event) => {
+            // Don't trigger profile view if clicking on the call button
+            if (event.target.closest('#call-btn')) return;
+
             if (!currentConversationId) return;
             const conversation = conversations.find(conv => conv.id === currentConversationId);
             if (!conversation || !conversation.participants) return;
@@ -1318,7 +1319,7 @@ function createMessageElement(msg) {
                     minute: '2-digit',
                     hour12: false
                 });
-                
+
                 // Add read status for own messages
                 if (isOwnMessage) {
                     const isRead = msg.read_at !== null;
@@ -1468,13 +1469,13 @@ async function createNewChat(otherUserId) {
 
         if (response.ok) {
             const conversation = await response.json();
-            
+
             // Add the new conversation to the chat list for both users
             socket.emit('new_conversation', {
                 conversation_id: conversation.id,
                 participant_ids: [otherUserId]
             });
-            
+
             // Update the UI
             await loadConversations();
             return conversation;
@@ -1506,7 +1507,7 @@ function updateUserStatus(userId, status, lastSeen) {
                         headerDiv.appendChild(newStatusElement);
                     }
                 }
-                
+
                 if (statusElement) {
                     if (status === 'online') {
                         statusElement.innerHTML = `
@@ -1515,8 +1516,8 @@ function updateUserStatus(userId, status, lastSeen) {
                         `;
                     } else {
                         const lastSeenDate = lastSeen ? new Date(lastSeen) : null;
-                        const lastSeenText = lastSeenDate ? 
-                            `Last seen ${formatLastSeen(lastSeenDate)}` : 
+                        const lastSeenText = lastSeenDate ?
+                            `Last seen ${formatLastSeen(lastSeenDate)}` :
                             'Offline';
                         statusElement.innerHTML = `
                             <span class="text-gray-500">${lastSeenText}</span>
@@ -1532,7 +1533,7 @@ function updateUserStatus(userId, status, lastSeen) {
 function formatLastSeen(date) {
     const now = new Date();
     const diff = now - date;
-    
+
     // Less than a minute
     if (diff < 60000) {
         return 'just now';

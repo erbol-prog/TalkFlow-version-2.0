@@ -546,13 +546,60 @@ function setupWebRTCListeners(socket) {
     socket.on('call_error', handleCallError);
 }
 
+// Function to store UI element references
+function storeUIElements(params) {
+    console.log('Storing WebRTC UI element references...');
+
+    // Assign DOM element references from params
+    callBtn = params.callBtn;
+    callStatusDiv = params.callStatusDiv;
+    callStatusText = params.callStatusText;
+    hangUpBtn = params.hangUpBtn;
+    incomingCallModal = params.incomingCallModal;
+    callerNameEl = params.callerNameEl;
+    callerAvatarEl = params.callerAvatarEl;
+    acceptCallBtn = params.acceptCallBtn;
+    rejectCallBtn = params.rejectCallBtn;
+    localAudioEl = params.localAudioElement;
+    remoteAudioEl = params.remoteAudioElement;
+    activeCallModal = params.activeCallModal;
+    activeCallAvatar = params.activeCallAvatar;
+    activeCallUsername = params.activeCallUsername;
+    activeCallTimer = params.activeCallTimer;
+    muteCallBtn = params.muteCallBtn;
+    activeHangUpBtn = params.activeHangUpBtn;
+    micIconUnmuted = params.micIconUnmuted;
+    micIconMuted = params.micIconMuted;
+
+    // Log success/failure
+    const missingElements = [];
+    if (!callBtn) missingElements.push('callBtn');
+    if (!callStatusDiv) missingElements.push('callStatusDiv');
+    if (!callStatusText) missingElements.push('callStatusText');
+    if (!hangUpBtn) missingElements.push('hangUpBtn');
+    if (!incomingCallModal) missingElements.push('incomingCallModal');
+    if (!callerNameEl) missingElements.push('callerNameEl');
+    if (!callerAvatarEl) missingElements.push('callerAvatarEl');
+    if (!acceptCallBtn) missingElements.push('acceptCallBtn');
+    if (!rejectCallBtn) missingElements.push('rejectCallBtn');
+    if (!localAudioEl) missingElements.push('localAudioEl');
+    if (!remoteAudioEl) missingElements.push('remoteAudioEl');
+    if (!activeCallModal) missingElements.push('activeCallModal');
+
+    if (missingElements.length > 0) {
+        console.warn('Some WebRTC UI elements are missing:', missingElements.join(', '));
+    } else {
+        console.log('All WebRTC UI elements stored successfully');
+    }
+}
+
 // --- Initialization ---
 export async function initializeWebRTC(params) {
     console.log('Initializing WebRTC module with provided elements...');
-    
+
     // Reset call state
     resetCallState();
-    
+
     // Initialize socket if not already initialized
     const socket = await initializeSocket();
     if (!socket) {
@@ -562,17 +609,17 @@ export async function initializeWebRTC(params) {
 
     // Set up WebRTC event listeners
     setupWebRTCListeners(socket);
-    
+
     // Update UI based on initial state
     updateWebRTCUI('idle');
-    
+
     // Store UI elements
     storeUIElements(params);
 }
 
 // --- Exports ---
-export { 
-    startCall, 
-    currentCall, 
-    updateUI as updateWebRTCUI 
+export {
+    startCall,
+    currentCall,
+    updateUI as updateWebRTCUI
 };
