@@ -55,11 +55,11 @@
     position: relative;
     cursor: pointer;
     transition: all 0.2s ease;
-    max-width: 65%;
-    padding: 10px 14px;
-    border-radius: 20px;
+    max-width: 70%;
+    margin-bottom: 1rem;
+    padding: 0.75rem;
+    border-radius: 0.5rem;
     font-size: 0.9rem;
-    margin-top: 8px;
     box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
 }
 #message-list {
@@ -368,11 +368,30 @@
     }
 }
 
-/* Adjust read status icon */
+/* Message timestamp styles */
+.message-timestamp {
+    font-size: 0.75rem;
+    margin-top: 0.25rem;
+    display: block;
+}
+
+/* Incoming message timestamp (unchanged) */
+.message.self-start .message-timestamp {
+    text-align: left;
+    color: #6B7280;
+}
+
+/* User's own message timestamp (white) */
+.message.self-end .message-timestamp {
+    text-align: right;
+    color: rgba(255, 255, 255, 0.9);
+}
+
+/* Read mark styling */
 .message-status-icon {
     font-size: 0.7rem;
     letter-spacing: -0.15em;
-    color: white;
+    color: rgba(255, 255, 255, 0.9);
     margin-left: 3px;
 }
 
@@ -404,35 +423,8 @@
 }
 
 .message-content {
-    word-break: break-word;
-    
-}
-
-.message-timestamp {
-    position: relative;
-    font-size: 0.7rem;
-    color: rgba(255, 255, 255, 0.7);
-    opacity: 0.9;
-    margin-top: 2px;
-    display: block;
-    text-align: right;
-}
-
-.message.self-end .message-timestamp {
-    color: rgba(255, 255, 255, 0.7);
-}
-
-/* Remove the "Read" text after timestamp */
-.message.self-end .message-timestamp:after {
-    content: "";
-}
-
-/* Adjust read status icon */
-.message-status-icon {
-    font-size: 0.7rem;
-    letter-spacing: -0.15em;
-    color: white;
-    margin-left: 3px;
+    word-wrap: break-word;
+    margin-bottom: 0.25rem;
 }
 
 /* Add online indicator styles */
@@ -640,4 +632,113 @@
 
 .animate-fade-scale {
     animation: scaleIn 0.2s ease-out;
+}
+
+/* Add these animations to your existing styles */
+
+@keyframes slideIn {
+    from {
+        opacity: 0;
+        transform: translateY(-10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.animate-fade-in {
+    animation: fadeIn 0.2s ease-out forwards;
+}
+
+.floating-actions-menu {
+    animation: slideIn 0.15s ease-out forwards;
+}
+
+/* Enhance button hover states */
+.floating-actions-menu button {
+    position: relative;
+    overflow: hidden;
+}
+
+.floating-actions-menu button::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: currentColor;
+    opacity: 0;
+    transition: opacity 0.2s;
+}
+
+.floating-actions-menu button:hover::after {
+    opacity: 0.05;
+}
+
+/* Translation modal enhancements */
+#translation-modal {
+    backdrop-filter: blur(4px);
+}
+
+#translation-modal .bg-white {
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+}
+
+#translation-result {
+    transition: all 0.3s ease;
+}
+
+/* Loading spinner animation */
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+.animate-spin {
+    animation: spin 1s linear infinite;
+}
+
+/* Message highlight animation */
+@keyframes highlight {
+    0% {
+        background-color: rgba(59, 130, 246, 0.1);
+    }
+    100% {
+        background-color: transparent;
+    }
+}
+
+.message.highlight {
+    animation: highlight 1.5s ease-out;
+}
+
+/* Ensure smooth transitions for all interactive elements */
+button, select, input {
+    transition: all 0.2s ease;
+}
+
+/* Enhance modal transitions */
+.modal-enter {
+    opacity: 0;
+    transform: scale(0.95);
+}
+
+.modal-enter-active {
+    opacity: 1;
+    transform: scale(1);
+    transition: opacity 0.2s ease-out, transform 0.2s ease-out;
+}
+
+.modal-exit {
+    opacity: 1;
+    transform: scale(1);
+}
+
+.modal-exit-active {
+    opacity: 0;
+    transform: scale(0.95);
+    transition: opacity 0.2s ease-in, transform 0.2s ease-in;
 }
