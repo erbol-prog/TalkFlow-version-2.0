@@ -1241,7 +1241,6 @@ async function initializeWebRTC(uiElements) {
 
         socket.on('disconnect', () => {
             console.warn('WebRTC socket disconnected. Socket ID:', socket.id);
-            showToast('Connection lost. Please refresh the page.', 'error');
         });
 
         // Setup socket event listeners for calls

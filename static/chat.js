@@ -112,6 +112,45 @@ async function ensureSocketInitialized() {
     }
 }
 
+// Add these CSS classes at the top of the file
+const CHAT_LIST_ITEM_CLASSES = {
+    base: 'flex items-center p-3 hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer rounded-lg transition-all duration-300 ease-in-out chat-list-item',
+    active: 'bg-blue-100 dark:bg-blue-800',
+    highlight: 'bg-blue-50 dark:bg-blue-900',
+    update: 'animate-update-highlight'
+};
+
+// Add this CSS to your stylesheet or create a style element
+const style = document.createElement('style');
+style.textContent = `
+    @keyframes update-highlight {
+        0% { background-color: rgba(59, 130, 246, 0.1); }
+        50% { background-color: rgba(59, 130, 246, 0.2); }
+        100% { background-color: transparent; }
+    }
+    .animate-update-highlight {
+        animation: update-highlight 1s ease-out;
+    }
+    .chat-list-item {
+        transform-origin: top;
+        transition: all 0.3s ease-in-out;
+    }
+    .chat-list-item.new {
+        animation: slide-in 0.3s ease-out;
+    }
+    @keyframes slide-in {
+        from { 
+            opacity: 0;
+            transform: translateY(-10px);
+        }
+        to { 
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+`;
+document.head.appendChild(style);
+
 // Setup socket listeners
 async function setupSocketListeners() {
     try {
@@ -124,12 +163,35 @@ async function setupSocketListeners() {
         // Remove any existing listeners to prevent duplicates
         socket.removeAllListeners();
 
+        // Handle new conversation creation
         socket.on('conversation_created', async (data) => {
-            console.log('New conversation created:', data);
+            console.log('New conversation created event received:', data);
+            
+            // Force reload conversations to ensure we get the latest data
+            await loadConversations();
+            
+            // If this is the creator's client, load the conversation
+            if (data.is_creator) {
+                console.log('Loading new conversation for creator');
+                await loadConversation(data.conversation_id);
+            } else {
+                // For other participants, show a notification and update chat list
+                console.log('New conversation notification for participant');
+                showToast(`New chat with ${data.name} created`, 'info');
+                // Ensure chat list is updated
+                await loadConversations();
+            }
+        });
+
+        // Handle chat list updates
+        socket.on('update_chat_list', async (data) => {
+            console.log('Received chat list update event:', data);
+            // Force reload conversations to get the latest data
             await loadConversations();
         });
 
-        socket.on('message', (data) => {
+        // Handle new messages (also update chat list)
+        socket.on('message', async (data) => {
             console.log('Received message:', data);
             if (data.conversation_id === currentConversationId) {
                 const messageList = document.getElementById('message-list');
@@ -142,10 +204,12 @@ async function setupSocketListeners() {
                     });
                 }
             }
-            loadConversations();
+            // Always update chat list when new message arrives
+            await loadConversations();
         });
 
-        socket.on('message_deleted', (data) => {
+        // Handle message deletion
+        socket.on('message_deleted', async (data) => {
             if (data.conversation_id === currentConversationId) {
                 const messageElement = document.querySelector(`[data-message-id="${data.message_id}"]`);
                 if (messageElement) {
@@ -153,9 +217,12 @@ async function setupSocketListeners() {
                     messageElement.innerHTML = '<div class="message-content">[Message deleted]</div>';
                 }
             }
+            // Update chat list to reflect deleted message
+            await loadConversations();
         });
 
-        socket.on('message_edited', (data) => {
+        // Handle message editing
+        socket.on('message_edited', async (data) => {
             if (data.conversation_id === currentConversationId) {
                 const messageElement = document.querySelector(`[data-message-id="${data.message_id}"]`);
                 if (messageElement) {
@@ -167,21 +234,25 @@ async function setupSocketListeners() {
                     }
                 }
             }
+            // Update chat list to reflect edited message
+            await loadConversations();
         });
 
-        socket.on('update_chat_list', () => {
-            loadConversations();
-        });
-
-        socket.on('messages_read', (data) => {
+        // Handle read status updates
+        socket.on('messages_read', async (data) => {
             if (data.conversation_id === currentConversationId) {
                 updateMessageReadStatus(data.message_ids);
             }
+            // Update chat list to reflect read status
+            await loadConversations();
         });
 
-        socket.on('user_status_change', (data) => {
+        // Handle user status changes
+        socket.on('user_status_change', async (data) => {
             const { user_id, status, last_seen } = data;
             updateUserStatus(user_id, status, last_seen);
+            // Update chat list to reflect user status
+            await loadConversations();
         });
 
         console.log('Socket listeners setup complete');
@@ -903,18 +974,21 @@ async function loadConversations() {
         const token = localStorage.getItem('token');
         if (!token) {
             console.error('No token available for loading conversations.');
-            // Handle this case, e.g., redirect to login
             return;
         }
 
-        const response = await fetch('/chat/conversations', {
-            headers: { 'Authorization': `Bearer ${token}` }
+        // Add cache-busting parameter to ensure fresh data
+        const timestamp = new Date().getTime();
+        const response = await fetch(`/chat/conversations?t=${timestamp}`, {
+            headers: { 
+                'Authorization': `Bearer ${token}`,
+                'Cache-Control': 'no-cache'
+            }
         });
 
         if (!response.ok) {
-            if (response.status === 401) { // Unauthorized
+            if (response.status === 401) {
                 localStorage.removeItem('token');
-                // Redirect to login or show welcome screen
                 document.getElementById('chat').classList.add('hidden');
                 document.getElementById('welcome').classList.remove('hidden');
                 showToast("Session expired. Please sign in.", "error");
@@ -922,38 +996,37 @@ async function loadConversations() {
                 showToast("Failed to load conversations.", "error");
             }
             console.error('Failed to load conversations:', response.status, response.statusText);
-            return; // Stop execution for this function
+            return;
         }
 
-        conversations = await response.json(); // Store conversation list globally
-        console.log('Conversations loaded:', conversations);
+        const newConversations = await response.json();
+        console.log('New conversations loaded:', newConversations);
 
-        // --- ADD participant_details to conversation objects (Example - adjust based on your actual API response) ---
-        // This part is crucial for getting the other user's ID for calling.
-        // You might need to adjust your /chat/conversations endpoint to include participant IDs and usernames.
-        // Example structure assumed for conversations array elements:
-        // { id: 1, name: 'user_b', participants: ['user_a', 'user_b'], participant_details: [{id: 10, username: 'user_a'}, {id: 11, username: 'user_b'}], ... }
+        // Only update if conversations have actually changed
+        const hasChanged = JSON.stringify(conversations) !== JSON.stringify(newConversations);
+        if (hasChanged) {
+            console.log('Conversations have changed, updating UI');
+            conversations = newConversations;
+            renderChatList(conversations);
 
-        renderChatList(conversations); // Update the UI
-
-        // Automatically load the first conversation if none is selected,
-        // or reload the current one if it exists after refresh.
-        const messageList = document.getElementById('message-list');
-        if (!currentConversationId && conversations.length > 0) {
-            console.log("No current conversation, loading first one:", conversations[0].id);
-            await loadConversation(conversations[0].id);
-        } else if (currentConversationId && conversations.some(c => c.id === currentConversationId)) {
-            console.log("Current conversation exists, reloading:", currentConversationId);
-            await loadConversation(currentConversationId); // Reload potentially updated info
-        } else if (currentConversationId && conversations.length > 0) {
-            // Current conversation ID is invalid (e.g., deleted), load first one
-            console.log("Current conversation ID invalid, loading first one:", conversations[0].id);
-            await loadConversation(conversations[0].id);
-        } else if (conversations.length === 0) {
-            // Handle case with no conversations
-            messageList.innerHTML = '<div class="p-4 text-center text-gray-500">No conversations yet. Start a new chat!</div>';
-            document.getElementById('conversation-name').textContent = 'Chat';
-            currentConversationId = null; // Ensure no conversation is selected
+            // Handle current conversation
+            const messageList = document.getElementById('message-list');
+            if (!currentConversationId && conversations.length > 0) {
+                console.log("No current conversation, loading first one:", conversations[0].id);
+                await loadConversation(conversations[0].id);
+            } else if (currentConversationId && conversations.some(c => c.id === currentConversationId)) {
+                console.log("Current conversation exists, reloading:", currentConversationId);
+                await loadConversation(currentConversationId);
+            } else if (currentConversationId && conversations.length > 0) {
+                console.log("Current conversation ID invalid, loading first one:", conversations[0].id);
+                await loadConversation(conversations[0].id);
+            } else if (conversations.length === 0) {
+                messageList.innerHTML = '<div class="p-4 text-center text-gray-500">No conversations yet. Start a new chat!</div>';
+                document.getElementById('conversation-name').textContent = 'Chat';
+                currentConversationId = null;
+            }
+        } else {
+            console.log('No changes in conversations, skipping UI update');
         }
 
     } catch (error) {
@@ -962,10 +1035,22 @@ async function loadConversations() {
     }
 }
 
+// Modify the renderChatList function to handle smooth updates
 function renderChatList(convList) {
     const chatListEl = document.getElementById('chat-list');
     if (!chatListEl) return;
-    chatListEl.innerHTML = ''; // Clear current list
+
+    // Store current items for comparison
+    const currentItems = new Map();
+    chatListEl.querySelectorAll('.chat-list-item').forEach(item => {
+        const convId = item.dataset.conversationId;
+        if (convId) {
+            currentItems.set(convId, item);
+        }
+    });
+
+    // Clear list but keep items in memory
+    chatListEl.innerHTML = '';
 
     if (!convList || convList.length === 0) {
         const emptyMessage = document.createElement('div');
@@ -975,43 +1060,188 @@ function renderChatList(convList) {
         return;
     }
 
+    // Sort conversations by last message time
+    convList.sort((a, b) => {
+        const timeA = a.last_message_time ? new Date(a.last_message_time) : new Date(0);
+        const timeB = b.last_message_time ? new Date(b.last_message_time) : new Date(0);
+        return timeB - timeA;
+    });
+
     convList.forEach(conv => {
-        const chatItem = document.createElement('div');
-        // Base classes + conditional highlighting
-        chatItem.className = `flex items-center p-3 hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer rounded-lg transition duration-150 ease-in-out chat-list-item ${conv.id === currentConversationId ? 'bg-blue-100 dark:bg-blue-800' : ''}`;
-        chatItem.dataset.conversationId = conv.id; // Add dataset for easy selection
+        let chatItem;
+        const existingItem = currentItems.get(conv.id.toString());
 
-        // Determine display name (handle 1-on-1 vs group) - assumes 'participants' array exists
-        let displayName = conv.name; // Use backend provided name
-        // Maybe add logic here if backend doesn't provide a good default name for 1-on-1
+        if (existingItem) {
+            // Reuse existing item if it exists
+            chatItem = existingItem;
+            // Update content smoothly
+            updateChatItemContent(chatItem, conv);
+        } else {
+            // Create new item with animation
+            chatItem = createChatItem(conv);
+            chatItem.classList.add('new');
+        }
 
-        const unreadCount = conv.unread_count || 0;
-
-        // Improved innerHTML structure
-        chatItem.innerHTML = `
-            <div class="relative mr-3">
-                <img src="https://ui-avatars.com/api/?name=${encodeURIComponent(displayName)}&background=random&size=40" alt="${displayName}" class="w-10 h-10 rounded-full">
-                ${unreadCount > 0 ? `<span class="absolute top-0 right-0 block h-4 w-4 transform -translate-y-1/2 translate-x-1/2 rounded-full ring-2 ring-white bg-red-500 text-white text-xs flex items-center justify-center">${unreadCount > 9 ? '9+' : unreadCount}</span>` : ''}
-            </div>
-            <div class="flex-1 min-w-0">
-                <h4 class="font-semibold text-gray-800 dark:text-gray-100 text-sm truncate">${displayName}</h4>
-                <p class="text-xs text-gray-500 dark:text-gray-400 truncate">${conv.last_message || 'No messages yet'}</p>
-            </div>
-        `;
-
-        chatItem.addEventListener('click', () => {
-            // Prevent reloading if already selected
-            if (conv.id !== currentConversationId) {
-                loadConversation(conv.id);
-                // Optional: Immediately highlight clicked item visually
-                document.querySelectorAll('.chat-list-item').forEach(item => item.classList.remove('bg-blue-100', 'dark:bg-blue-800'));
-                chatItem.classList.add('bg-blue-100', 'dark:bg-blue-800');
-            }
-        });
+        // Update active state
+        chatItem.className = `${CHAT_LIST_ITEM_CLASSES.base} ${conv.id === currentConversationId ? CHAT_LIST_ITEM_CLASSES.active : ''}`;
+        
+        // Add to list
         chatListEl.appendChild(chatItem);
+
+        // Remove highlight animation after it completes
+        chatItem.addEventListener('animationend', () => {
+            chatItem.classList.remove('animate-update-highlight');
+        });
     });
 }
 
+// Helper function to create a chat item
+function createChatItem(conv) {
+    const chatItem = document.createElement('div');
+    chatItem.dataset.conversationId = conv.id;
+    
+    const displayName = conv.name;
+    const unreadCount = conv.unread_count || 0;
+
+    chatItem.innerHTML = `
+        <div class="relative mr-3">
+            <img src="https://ui-avatars.com/api/?name=${encodeURIComponent(displayName)}&background=random&size=40" 
+                 alt="${displayName}" 
+                 class="w-10 h-10 rounded-full transition-transform duration-300 hover:scale-105">
+            ${unreadCount > 0 ? `
+                <span class="absolute top-0 right-0 block h-4 w-4 transform -translate-y-1/2 translate-x-1/2 
+                           rounded-full ring-2 ring-white bg-red-500 text-white text-xs 
+                           flex items-center justify-center transition-all duration-300">
+                    ${unreadCount > 9 ? '9+' : unreadCount}
+                </span>
+            ` : ''}
+        </div>
+        <div class="flex-1 min-w-0">
+            <h4 class="font-semibold text-gray-800 dark:text-gray-100 text-sm truncate transition-colors duration-300">
+                ${displayName}
+            </h4>
+            <p class="text-xs text-gray-500 dark:text-gray-400 truncate transition-colors duration-300">
+                ${conv.last_message || 'No messages yet'}
+            </p>
+        </div>
+    `;
+
+    // Add click handler with smooth transition
+    chatItem.addEventListener('click', async () => {
+        if (conv.id !== currentConversationId) {
+            // Add highlight effect
+            chatItem.classList.add(CHAT_LIST_ITEM_CLASSES.highlight);
+            
+            // Remove highlight from other items
+            document.querySelectorAll('.chat-list-item').forEach(item => {
+                if (item !== chatItem) {
+                    item.classList.remove(CHAT_LIST_ITEM_CLASSES.active, CHAT_LIST_ITEM_CLASSES.highlight);
+                }
+            });
+
+            // Load conversation with a slight delay for smooth transition
+            setTimeout(async () => {
+                await loadConversation(conv.id);
+                chatItem.classList.remove(CHAT_LIST_ITEM_CLASSES.highlight);
+                chatItem.classList.add(CHAT_LIST_ITEM_CLASSES.active);
+            }, 150);
+        }
+    });
+
+    return chatItem;
+}
+
+// Helper function to update chat item content smoothly
+function updateChatItemContent(chatItem, conv) {
+    const displayName = conv.name;
+    const unreadCount = conv.unread_count || 0;
+    const lastMessage = conv.last_message || 'No messages yet';
+
+    // Update content with smooth transitions
+    const nameEl = chatItem.querySelector('h4');
+    const messageEl = chatItem.querySelector('p');
+    const unreadBadge = chatItem.querySelector('.absolute');
+
+    if (nameEl && nameEl.textContent !== displayName) {
+        nameEl.style.opacity = '0';
+        setTimeout(() => {
+            nameEl.textContent = displayName;
+            nameEl.style.opacity = '1';
+        }, 150);
+    }
+
+    if (messageEl && messageEl.textContent !== lastMessage) {
+        messageEl.style.opacity = '0';
+        setTimeout(() => {
+            messageEl.textContent = lastMessage;
+            messageEl.style.opacity = '1';
+        }, 150);
+    }
+
+    // Update unread badge with animation
+    if (unreadCount > 0) {
+        if (!unreadBadge) {
+            const badge = document.createElement('span');
+            badge.className = 'absolute top-0 right-0 block h-4 w-4 transform -translate-y-1/2 translate-x-1/2 rounded-full ring-2 ring-white bg-red-500 text-white text-xs flex items-center justify-center transition-all duration-300';
+            chatItem.querySelector('.relative').appendChild(badge);
+        }
+        unreadBadge.textContent = unreadCount > 9 ? '9+' : unreadCount;
+        unreadBadge.style.transform = 'scale(1.2)';
+        setTimeout(() => {
+            unreadBadge.style.transform = 'translate(-50%, -50%)';
+        }, 150);
+    } else if (unreadBadge) {
+        unreadBadge.style.transform = 'scale(0)';
+        setTimeout(() => unreadBadge.remove(), 150);
+    }
+
+    // Add highlight animation for updates
+    chatItem.classList.add('animate-update-highlight');
+}
+
+// Modify the socket event handlers to use debounced updates
+let updateTimeout;
+function debouncedLoadConversations() {
+    clearTimeout(updateTimeout);
+    updateTimeout = setTimeout(async () => {
+        await loadConversations();
+    }, 300); // 300ms debounce
+}
+
+// Update socket event handlers to use debounced updates
+socket.on('conversation_created', async (data) => {
+    console.log('New conversation created event received:', data);
+    debouncedLoadConversations();
+    
+    if (data.is_creator) {
+        console.log('Loading new conversation for creator');
+        await loadConversation(data.conversation_id);
+    } else {
+        console.log('New conversation notification for participant');
+        showToast(`New chat with ${data.name} created`, 'info');
+    }
+});
+
+socket.on('update_chat_list', async (data) => {
+    console.log('Received chat list update event:', data);
+    debouncedLoadConversations();
+});
+
+socket.on('message', async (data) => {
+    console.log('Received message:', data);
+    if (data.conversation_id === currentConversationId) {
+        const messageList = document.getElementById('message-list');
+        const messageDiv = createMessageElement(data);
+        if (messageDiv) {
+            messageList.appendChild(messageDiv);
+            messageList.scrollTo({
+                top: messageList.scrollHeight,
+                behavior: 'smooth'
+            });
+        }
+    }
+    debouncedLoadConversations();
+});
 
 async function loadConversation(conversationId) {
     console.log(`Loading conversation ${conversationId}...`);
@@ -1392,21 +1622,20 @@ async function createNewChat(otherUserId) {
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify({
-                participant_ids: [otherUserId]
+                participant_ids: [currentUserId, otherUserId] // Include both users
             })
         });
 
         if (response.ok) {
             const conversation = await response.json();
-
-            // Add the new conversation to the chat list for both users
-            socket.emit('new_conversation', {
-                conversation_id: conversation.id,
-                participant_ids: [otherUserId]
-            });
-
-            // Update the UI
+            // The server will handle notifying all participants via socket
+            // No need to emit new_conversation event here
+            
+            // Update the UI for the creator
             await loadConversations();
+            if (conversation.conversation_id) {
+                await loadConversation(conversation.conversation_id);
+            }
             return conversation;
         } else {
             throw new Error('Failed to create conversation');

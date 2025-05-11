@@ -7,7 +7,7 @@ from .admin_routes import router as admin_router
 
 # --- ADD THIS: Import Call model ---
 from .database import engine, Base, SessionLocal
-from .models import Message, User, ConversationParticipant, Call
+from .models import Message, User, ConversationParticipant, Call, Conversation
 from .ws_manager import sio, connected_users
 import socketio
 from datetime import datetime
@@ -71,6 +71,30 @@ def update_user_last_seen(user_id):
         print(f"Error updating last seen for user {user_id}: {e}")
     finally:
         db.close()
+
+
+# Add this helper function at the top level
+async def notify_chat_list_update(conversation_id, db):
+    """Helper function to notify all participants of a chat list update"""
+    try:
+        # Get all participants for this conversation
+        participants = (
+            db.query(ConversationParticipant)
+            .filter(ConversationParticipant.conversation_id == conversation_id)
+            .all()
+        )
+        
+        # Notify each participant
+        for participant in participants:
+            participant_sid = get_sid_by_user_id(participant.user_id)
+            if participant_sid:
+                await sio.emit('update_chat_list', {
+                    'conversation_id': conversation_id,
+                    'timestamp': datetime.utcnow().isoformat()
+                }, room=participant_sid)
+                print(f"Notified user {participant.user_id} about chat list update for conversation {conversation_id}")
+    except Exception as e:
+        print(f"Error notifying chat list update: {e}")
 
 
 @sio.event
@@ -343,15 +367,8 @@ async def message(sid, data):
         await sio.emit("message", message_data, room=room_name)
         print(f"Message {new_message.id} broadcasted to room {room_name}")
 
-        # 8. Emit an event to update the chat list for relevant users (more targeted approach needed)
-        # Finding all participants and their SIDs can be inefficient here.
-        # A better approach might be for clients to request updates or use the 'message' event
-        # itself to trigger a fetch of conversations if needed.
-        # For simplicity, keeping the broad emit for now:
-        # await sio.emit(
-        #     "update_chat_list",
-        #     {"conversation_id": new_message.conversation_id},
-        # )
+        # Notify all participants to update their chat lists
+        await notify_chat_list_update(conversation_id, db)
 
     except Exception as e:
         print(f"Error processing message from {sid}: {e}")
@@ -423,6 +440,9 @@ async def delete_message(sid, data):
             room=room_name,
         )
         print(f"Delete notification for message {message_id} sent to room {room_name}")
+
+        # Notify all participants to update their chat lists
+        await notify_chat_list_update(message.conversation_id, db)
 
     except Exception as e:
         print(f"Error deleting message {message_id} requested by {sid}: {e}")
@@ -513,6 +533,9 @@ async def edit_message(sid, data):
             room=room_name,
         )
         print(f"Edit notification for message {message_id} sent to room {room_name}")
+
+        # Notify all participants to update their chat lists
+        await notify_chat_list_update(message.conversation_id, db)
 
     except Exception as e:
         print(f"Error editing message {message_id} requested by {sid}: {e}")
@@ -756,13 +779,63 @@ async def new_conversation(sid, data):
         print(f"Invalid new_conversation data from {sid}")
         return
 
-    # Notify all participants about the new conversation
-    for participant_id in participant_ids:
-        participant_sid = get_sid_by_user_id(participant_id)
-        if participant_sid:
-            await sio.emit("conversation_created", {
-                "conversation_id": conversation_id
-            }, room=participant_sid)
+    db = SessionLocal()
+    try:
+        # Get conversation details including name and participants
+        conversation = db.query(Conversation).filter(Conversation.id == conversation_id).first()
+        if not conversation:
+            print(f"Conversation {conversation_id} not found")
+            return
+
+        # Get participant details
+        participants = (
+            db.query(User)
+            .join(ConversationParticipant)
+            .filter(ConversationParticipant.conversation_id == conversation_id)
+            .all()
+        )
+
+        # Create participant details list
+        participant_details = [
+            {"id": p.id, "username": p.username}
+            for p in participants
+        ]
+
+        # Notify all participants about the new conversation
+        for participant_id in participant_ids:
+            participant_sid = get_sid_by_user_id(participant_id)
+            if participant_sid:
+                # Get the other participant's name for 1-on-1 chats
+                other_participant = next(
+                    (p for p in participants if p.id != participant_id),
+                    None
+                )
+                conversation_name = (
+                    other_participant.username
+                    if len(participants) == 2 and not conversation.name
+                    else conversation.name
+                )
+
+                await sio.emit("conversation_created", {
+                    "conversation_id": conversation_id,
+                    "is_creator": participant_id == user_id,
+                    "creator_id": user_id,
+                    "name": conversation_name,
+                    "participant_details": participant_details,
+                    "is_group": len(participants) > 2
+                }, room=participant_sid)
+                print(f"Notified user {participant_id} about new conversation {conversation_id}")
+
+                # Also emit a chat list update
+                await sio.emit('update_chat_list', {
+                    'conversation_id': conversation_id,
+                    'timestamp': datetime.utcnow().isoformat()
+                }, room=participant_sid)
+
+    except Exception as e:
+        print(f"Error in new_conversation handler: {e}")
+    finally:
+        db.close()
 
 
 # --- Main Execution ---
