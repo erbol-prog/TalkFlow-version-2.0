@@ -6,13 +6,17 @@ import { showToast } from './chat.js';
 async function callAIEndpoint(endpoint, text) {
     try {
         const token = localStorage.getItem('token');
+        const body = endpoint === 'translate' 
+            ? { text, target_language: 'russian' } // Default to Russian translation
+            : { text };
+
         const response = await fetch(`/ai/${endpoint}`, {
             method: 'POST',
             headers: {
                 'Authorization': `Bearer ${token}`,
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify({ text })
+            body: JSON.stringify(body)
         });
 
         if (!response.ok) {
