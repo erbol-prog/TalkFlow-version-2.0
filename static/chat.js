@@ -112,44 +112,14 @@ async function ensureSocketInitialized() {
     }
 }
 
-// Add these CSS classes at the top of the file
+// Remove animation from CHAT_LIST_ITEM_CLASSES
 const CHAT_LIST_ITEM_CLASSES = {
-    base: 'flex items-center p-3 hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer rounded-lg transition-all duration-300 ease-in-out chat-list-item',
-    active: 'bg-blue-100 dark:bg-blue-800',
-    highlight: 'bg-blue-50 dark:bg-blue-900',
-    update: 'animate-update-highlight'
+    base: 'flex items-center p-3 hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer rounded-lg chat-list-item',
+    active: 'bg-blue-100',
+    activeDark: 'dark:bg-blue-800',
+    highlight: 'bg-blue-50',
+    highlightDark: 'dark:bg-blue-900'
 };
-
-// Add this CSS to your stylesheet or create a style element
-const style = document.createElement('style');
-style.textContent = `
-    @keyframes update-highlight {
-        0% { background-color: rgba(59, 130, 246, 0.1); }
-        50% { background-color: rgba(59, 130, 246, 0.2); }
-        100% { background-color: transparent; }
-    }
-    .animate-update-highlight {
-        animation: update-highlight 1s ease-out;
-    }
-    .chat-list-item {
-        transform-origin: top;
-        transition: all 0.3s ease-in-out;
-    }
-    .chat-list-item.new {
-        animation: slide-in 0.3s ease-out;
-    }
-    @keyframes slide-in {
-        from { 
-            opacity: 0;
-            transform: translateY(-10px);
-        }
-        to { 
-            opacity: 1;
-            transform: translateY(0);
-        }
-    }
-`;
-document.head.appendChild(style);
 
 // Setup socket listeners
 async function setupSocketListeners() {
@@ -166,20 +136,14 @@ async function setupSocketListeners() {
         // Handle new conversation creation
         socket.on('conversation_created', async (data) => {
             console.log('New conversation created event received:', data);
+            debouncedLoadConversations();
             
-            // Force reload conversations to ensure we get the latest data
-            await loadConversations();
-            
-            // If this is the creator's client, load the conversation
             if (data.is_creator) {
                 console.log('Loading new conversation for creator');
                 await loadConversation(data.conversation_id);
             } else {
-                // For other participants, show a notification and update chat list
                 console.log('New conversation notification for participant');
                 showToast(`New chat with ${data.name} created`, 'info');
-                // Ensure chat list is updated
-                await loadConversations();
             }
         });
 
@@ -258,6 +222,7 @@ async function setupSocketListeners() {
         console.log('Socket listeners setup complete');
     } catch (error) {
         console.error('Error setting up socket listeners:', error);
+        showToast('Connection error. Please refresh the page.', 'error');
     }
 }
 
@@ -1035,70 +1000,94 @@ async function loadConversations() {
     }
 }
 
-// Modify the renderChatList function to handle smooth updates
 function renderChatList(convList) {
     const chatListEl = document.getElementById('chat-list');
-    if (!chatListEl) return;
-
-    // Store current items for comparison
-    const currentItems = new Map();
-    chatListEl.querySelectorAll('.chat-list-item').forEach(item => {
-        const convId = item.dataset.conversationId;
-        if (convId) {
-            currentItems.set(convId, item);
-        }
-    });
-
-    // Clear list but keep items in memory
-    chatListEl.innerHTML = '';
-
-    if (!convList || convList.length === 0) {
-        const emptyMessage = document.createElement('div');
-        emptyMessage.className = 'p-4 text-center text-gray-500 text-sm';
-        emptyMessage.textContent = 'No chats match your search.';
-        chatListEl.appendChild(emptyMessage);
+    if (!chatListEl) {
+        console.warn('Chat list element not found');
         return;
     }
 
-    // Sort conversations by last message time
-    convList.sort((a, b) => {
-        const timeA = a.last_message_time ? new Date(a.last_message_time) : new Date(0);
-        const timeB = b.last_message_time ? new Date(b.last_message_time) : new Date(0);
-        return timeB - timeA;
-    });
+    try {
+        // Store current items for comparison
+        const currentItems = new Map();
+        const existingItems = chatListEl.querySelectorAll('.chat-list-item');
+        
+        existingItems.forEach(item => {
+            const convId = item.dataset.conversationId;
+            if (convId) {
+                currentItems.set(convId, item);
+            }
+        });
 
-    convList.forEach(conv => {
-        let chatItem;
-        const existingItem = currentItems.get(conv.id.toString());
+        // Clear list but keep items in memory
+        chatListEl.innerHTML = '';
 
-        if (existingItem) {
-            // Reuse existing item if it exists
-            chatItem = existingItem;
-            // Update content smoothly
-            updateChatItemContent(chatItem, conv);
-        } else {
-            // Create new item with animation
-            chatItem = createChatItem(conv);
-            chatItem.classList.add('new');
+        if (!convList || convList.length === 0) {
+            const emptyMessage = document.createElement('div');
+            emptyMessage.className = 'p-4 text-center text-gray-500 text-sm';
+            emptyMessage.textContent = 'No chats match your search.';
+            chatListEl.appendChild(emptyMessage);
+            return;
         }
 
-        // Update active state
-        chatItem.className = `${CHAT_LIST_ITEM_CLASSES.base} ${conv.id === currentConversationId ? CHAT_LIST_ITEM_CLASSES.active : ''}`;
-        
-        // Add to list
-        chatListEl.appendChild(chatItem);
-
-        // Remove highlight animation after it completes
-        chatItem.addEventListener('animationend', () => {
-            chatItem.classList.remove('animate-update-highlight');
+        // Sort conversations by last message time
+        convList.sort((a, b) => {
+            const timeA = a.last_message_time ? new Date(a.last_message_time) : new Date(0);
+            const timeB = b.last_message_time ? new Date(b.last_message_time) : new Date(0);
+            return timeB - timeA;
         });
-    });
+
+        // Process each conversation
+        convList.forEach(conv => {
+            if (!conv || !conv.id) {
+                console.warn('Invalid conversation data:', conv);
+                return;
+            }
+
+            try {
+                let chatItem;
+                const existingItem = currentItems.get(conv.id.toString());
+
+                if (existingItem && existingItem.isConnected) {
+                    // Only reuse item if it's still in the DOM
+                    chatItem = existingItem;
+                    updateChatItemContent(chatItem, conv);
+                } else {
+                    // Create new item if existing one is not valid
+                    chatItem = createChatItem(conv);
+                }
+
+                if (!chatItem) {
+                    console.warn('Failed to create or update chat item for conversation:', conv.id);
+                    return;
+                }
+
+                // Update active state
+                if (conv.id === currentConversationId) {
+                    chatItem.classList.add(CHAT_LIST_ITEM_CLASSES.active);
+                    chatItem.classList.add(CHAT_LIST_ITEM_CLASSES.activeDark);
+                } else {
+                    chatItem.classList.remove(CHAT_LIST_ITEM_CLASSES.active);
+                    chatItem.classList.remove(CHAT_LIST_ITEM_CLASSES.activeDark);
+                }
+                
+                chatListEl.appendChild(chatItem);
+            } catch (error) {
+                console.error('Error processing conversation:', conv.id, error);
+                // Continue with next conversation instead of breaking the entire list
+            }
+        });
+    } catch (error) {
+        console.error('Error rendering chat list:', error);
+        // Show error state in chat list
+        chatListEl.innerHTML = '<div class="p-4 text-center text-red-500">Error loading chat list. Please refresh the page.</div>';
+    }
 }
 
-// Helper function to create a chat item
 function createChatItem(conv) {
     const chatItem = document.createElement('div');
     chatItem.dataset.conversationId = conv.id;
+    chatItem.className = CHAT_LIST_ITEM_CLASSES.base;
     
     const displayName = conv.name;
     const unreadCount = conv.unread_count || 0;
@@ -1107,96 +1096,119 @@ function createChatItem(conv) {
         <div class="relative mr-3">
             <img src="https://ui-avatars.com/api/?name=${encodeURIComponent(displayName)}&background=random&size=40" 
                  alt="${displayName}" 
-                 class="w-10 h-10 rounded-full transition-transform duration-300 hover:scale-105">
+                 class="w-10 h-10 rounded-full">
             ${unreadCount > 0 ? `
                 <span class="absolute top-0 right-0 block h-4 w-4 transform -translate-y-1/2 translate-x-1/2 
                            rounded-full ring-2 ring-white bg-red-500 text-white text-xs 
-                           flex items-center justify-center transition-all duration-300">
+                           flex items-center justify-center">
                     ${unreadCount > 9 ? '9+' : unreadCount}
                 </span>
             ` : ''}
         </div>
         <div class="flex-1 min-w-0">
-            <h4 class="font-semibold text-gray-800 dark:text-gray-100 text-sm truncate transition-colors duration-300">
+            <h4 class="font-semibold text-gray-800 dark:text-gray-100 text-sm truncate">
                 ${displayName}
             </h4>
-            <p class="text-xs text-gray-500 dark:text-gray-400 truncate transition-colors duration-300">
+            <p class="text-xs text-gray-500 dark:text-gray-400 truncate">
                 ${conv.last_message || 'No messages yet'}
             </p>
         </div>
     `;
 
-    // Add click handler with smooth transition
-    chatItem.addEventListener('click', async () => {
-        if (conv.id !== currentConversationId) {
-            // Add highlight effect
-            chatItem.classList.add(CHAT_LIST_ITEM_CLASSES.highlight);
-            
-            // Remove highlight from other items
-            document.querySelectorAll('.chat-list-item').forEach(item => {
-                if (item !== chatItem) {
-                    item.classList.remove(CHAT_LIST_ITEM_CLASSES.active, CHAT_LIST_ITEM_CLASSES.highlight);
-                }
-            });
+    // Click handler remains the same but without animation classes
+    chatItem.addEventListener('click', async (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        
+        const clickedConvId = parseInt(chatItem.dataset.conversationId);
+        console.log('Chat item clicked:', {
+            clickedConvId,
+            currentConvId: currentConversationId,
+            convData: conv
+        });
 
-            // Load conversation with a slight delay for smooth transition
-            setTimeout(async () => {
-                await loadConversation(conv.id);
+        if (!clickedConvId) {
+            console.error('Invalid conversation ID in clicked item');
+            return;
+        }
+
+        if (clickedConvId !== currentConversationId) {
+            try {
+                chatItem.classList.add(CHAT_LIST_ITEM_CLASSES.highlight);
+                chatItem.classList.add(CHAT_LIST_ITEM_CLASSES.highlightDark);
+                
+                document.querySelectorAll('.chat-list-item').forEach(item => {
+                    if (item !== chatItem) {
+                        item.classList.remove(CHAT_LIST_ITEM_CLASSES.active);
+                        item.classList.remove(CHAT_LIST_ITEM_CLASSES.activeDark);
+                        item.classList.remove(CHAT_LIST_ITEM_CLASSES.highlight);
+                        item.classList.remove(CHAT_LIST_ITEM_CLASSES.highlightDark);
+                    }
+                });
+
+                await loadConversation(clickedConvId);
+                
                 chatItem.classList.remove(CHAT_LIST_ITEM_CLASSES.highlight);
+                chatItem.classList.remove(CHAT_LIST_ITEM_CLASSES.highlightDark);
                 chatItem.classList.add(CHAT_LIST_ITEM_CLASSES.active);
-            }, 150);
+                chatItem.classList.add(CHAT_LIST_ITEM_CLASSES.activeDark);
+                
+            } catch (error) {
+                console.error('Error loading conversation:', error);
+                showToast('Failed to load conversation', 'error');
+                chatItem.classList.remove(CHAT_LIST_ITEM_CLASSES.highlight);
+                chatItem.classList.remove(CHAT_LIST_ITEM_CLASSES.highlightDark);
+            }
         }
     });
 
     return chatItem;
 }
 
-// Helper function to update chat item content smoothly
 function updateChatItemContent(chatItem, conv) {
-    const displayName = conv.name;
-    const unreadCount = conv.unread_count || 0;
-    const lastMessage = conv.last_message || 'No messages yet';
+    if (!chatItem || !conv) {
+        console.warn('Invalid arguments to updateChatItemContent:', { chatItem, conv });
+        return;
+    }
 
-    // Update content with smooth transitions
-    const nameEl = chatItem.querySelector('h4');
-    const messageEl = chatItem.querySelector('p');
-    const unreadBadge = chatItem.querySelector('.absolute');
+    try {
+        const displayName = conv.name;
+        const unreadCount = conv.unread_count || 0;
+        const lastMessage = conv.last_message || 'No messages yet';
 
-    if (nameEl && nameEl.textContent !== displayName) {
-        nameEl.style.opacity = '0';
-        setTimeout(() => {
+        // Safely get elements with null checks
+        const nameEl = chatItem.querySelector('h4');
+        const messageEl = chatItem.querySelector('p');
+        const relativeContainer = chatItem.querySelector('.relative');
+        const unreadBadge = chatItem.querySelector('.absolute');
+
+        // Update name if element exists
+        if (nameEl) {
             nameEl.textContent = displayName;
-            nameEl.style.opacity = '1';
-        }, 150);
-    }
-
-    if (messageEl && messageEl.textContent !== lastMessage) {
-        messageEl.style.opacity = '0';
-        setTimeout(() => {
-            messageEl.textContent = lastMessage;
-            messageEl.style.opacity = '1';
-        }, 150);
-    }
-
-    // Update unread badge with animation
-    if (unreadCount > 0) {
-        if (!unreadBadge) {
-            const badge = document.createElement('span');
-            badge.className = 'absolute top-0 right-0 block h-4 w-4 transform -translate-y-1/2 translate-x-1/2 rounded-full ring-2 ring-white bg-red-500 text-white text-xs flex items-center justify-center transition-all duration-300';
-            chatItem.querySelector('.relative').appendChild(badge);
         }
-        unreadBadge.textContent = unreadCount > 9 ? '9+' : unreadCount;
-        unreadBadge.style.transform = 'scale(1.2)';
-        setTimeout(() => {
-            unreadBadge.style.transform = 'translate(-50%, -50%)';
-        }, 150);
-    } else if (unreadBadge) {
-        unreadBadge.style.transform = 'scale(0)';
-        setTimeout(() => unreadBadge.remove(), 150);
-    }
 
-    // Add highlight animation for updates
-    chatItem.classList.add('animate-update-highlight');
+        // Update message if element exists
+        if (messageEl) {
+            messageEl.textContent = lastMessage;
+        }
+
+        // Handle unread badge
+        if (unreadCount > 0) {
+            if (!unreadBadge && relativeContainer) {
+                const badge = document.createElement('span');
+                badge.className = 'absolute top-0 right-0 block h-4 w-4 transform -translate-y-1/2 translate-x-1/2 rounded-full ring-2 ring-white bg-red-500 text-white text-xs flex items-center justify-center';
+                relativeContainer.appendChild(badge);
+                badge.textContent = unreadCount > 9 ? '9+' : unreadCount;
+            } else if (unreadBadge) {
+                unreadBadge.textContent = unreadCount > 9 ? '9+' : unreadCount;
+            }
+        } else if (unreadBadge) {
+            unreadBadge.remove();
+        }
+    } catch (error) {
+        console.error('Error updating chat item content:', error);
+        // Don't throw the error, just log it to prevent breaking the chat list
+    }
 }
 
 // Modify the socket event handlers to use debounced updates
@@ -1244,14 +1256,30 @@ socket.on('message', async (data) => {
 });
 
 async function loadConversation(conversationId) {
-    console.log(`Loading conversation ${conversationId}...`);
-    if (!conversationId || !messageList || !conversationNameEl || !callBtn) {
-        console.warn("loadConversation called with null ID or missing essential elements.");
+    console.log(`Starting to load conversation ${conversationId}...`);
+    
+    // Validate inputs
+    if (!conversationId) {
+        console.error('loadConversation called with null/undefined conversationId');
+        return;
+    }
+
+    // Get required DOM elements
+    const messageList = document.getElementById('message-list');
+    const conversationNameEl = document.getElementById('conversation-name');
+    const callBtn = document.getElementById('call-btn');
+
+    if (!messageList || !conversationNameEl || !callBtn) {
+        console.error('Required DOM elements not found:', {
+            messageList: !!messageList,
+            conversationNameEl: !!conversationNameEl,
+            callBtn: !!callBtn
+        });
         return;
     }
 
     // --- Reset WebRTC state if a call is active --- 
-    if (webRTCCallState.state !== 'idle') {
+    if (webRTCCallState && webRTCCallState.state !== 'idle') {
         console.log("Switching conversation during an active call. Ending the call.");
         if (typeof updateWebRTCUI === 'function') {
             const hangUpBtn = document.getElementById('hang-up-btn');
@@ -1269,22 +1297,25 @@ async function loadConversation(conversationId) {
     try {
         // Update current conversation ID state
         currentConversationId = conversationId;
+        console.log('Updated currentConversationId to:', currentConversationId);
 
         // Join the WebSocket room for this conversation
-        await ensureSocketInitialized();
+        const socket = await ensureSocketInitialized();
         if (socket && socket.connected) {
+            console.log('Joining conversation room:', conversationId);
             await joinConversation(conversationId);
         } else {
-            console.warn("Socket not ready when trying to join room.");
-            if (typeof initializeSocket === 'function') {
-                await initializeSocket();
-            }
+            console.warn("Socket not ready when trying to join room. Attempting to initialize...");
+            await initializeSocket();
         }
 
         const token = localStorage.getItem('token');
-        if (!token) throw new Error('Authentication token missing');
+        if (!token) {
+            throw new Error('Authentication token missing');
+        }
 
         // --- Fetch Conversation Details (Messages) ---
+        console.log('Fetching messages for conversation:', conversationId);
         const response = await fetch(`/chat/messages/${conversationId}`, {
             headers: { 'Authorization': `Bearer ${token}` }
         });
@@ -1295,11 +1326,11 @@ async function loadConversation(conversationId) {
             } else {
                 showToast("Failed to load messages.", "error");
             }
-            throw new Error(`Failed to load messages: ${response.statusText}`);
+            throw new Error(`Failed to load messages: ${response.status} ${response.statusText}`);
         }
 
         const messages = await response.json();
-        console.log('Messages loaded for conversation', conversationId, messages);
+        console.log(`Loaded ${messages.length} messages for conversation ${conversationId}`);
 
         // --- Render Messages ---
         messageList.innerHTML = '';
@@ -1329,6 +1360,7 @@ async function loadConversation(conversationId) {
         // --- Update Conversation Header --- 
         const convData = conversations.find(c => c.id === conversationId);
         if (convData) {
+            console.log('Updating conversation header with:', convData);
             conversationNameEl.textContent = convData.name;
             if (conversationAvatarEl) {
                 conversationAvatarEl.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(convData.name)}&background=random&size=40`;
@@ -1353,6 +1385,7 @@ async function loadConversation(conversationId) {
                 callBtn.classList.add('hidden');
             }
         } else {
+            console.warn('Conversation data not found for ID:', conversationId);
             conversationNameEl.textContent = 'Chat';
             callBtn.classList.add('hidden');
         }
@@ -1364,13 +1397,17 @@ async function loadConversation(conversationId) {
         await markConversationRead(conversationId);
 
         // Focus the message input
+        const messageInput = document.getElementById('message-input');
         messageInput?.focus();
+
+        console.log('Conversation load completed successfully');
 
     } catch (error) {
         console.error(`Error loading conversation ${conversationId}:`, error);
         messageList.innerHTML = `<div class="p-4 text-center text-red-500">Error loading messages. Please try again.</div>`;
         conversationNameEl.textContent = 'Error';
         callBtn.classList.add('hidden');
+        throw error; // Re-throw to let caller handle the error
     }
 }
 
