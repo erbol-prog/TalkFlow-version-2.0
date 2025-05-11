@@ -133,43 +133,42 @@ async function setupSocketListeners() {
         // Remove any existing listeners to prevent duplicates
         socket.removeAllListeners();
 
-        // Handle new conversation creation
-        socket.on('conversation_created', async (data) => {
-            console.log('New conversation created event received:', data);
-            debouncedLoadConversations();
-            
-            if (data.is_creator) {
-                console.log('Loading new conversation for creator');
-                await loadConversation(data.conversation_id);
-            } else {
-                console.log('New conversation notification for participant');
-                showToast(`New chat with ${data.name} created`, 'info');
-            }
-        });
-
-        // Handle chat list updates
-        socket.on('update_chat_list', async (data) => {
-            console.log('Received chat list update event:', data);
-            // Force reload conversations to get the latest data
-            await loadConversations();
-        });
-
-        // Handle new messages (also update chat list)
+        // Handle new messages
         socket.on('message', async (data) => {
             console.log('Received message:', data);
             if (data.conversation_id === currentConversationId) {
                 const messageList = document.getElementById('message-list');
+                if (!messageList) return;
+
                 const messageDiv = createMessageElement(data);
                 if (messageDiv) {
+                    // Get current scroll position and height
+                    const isAtBottom = Math.abs(messageList.scrollHeight - messageList.scrollTop - messageList.clientHeight) < 10;
+                    
+                    // Add no-scroll class
+                    messageList.classList.add('no-scroll');
+                    
+                    // Append the new message
                     messageList.appendChild(messageDiv);
-                    messageList.scrollTo({
-                        top: messageList.scrollHeight,
-                        behavior: 'smooth'
-                    });
+                    
+                    // Force a reflow
+                    messageList.offsetHeight;
+                    
+                    // Remove no-scroll class
+                    messageList.classList.remove('no-scroll');
+                    
+                    // Set scroll position if at bottom
+                    if (isAtBottom) {
+                        messageList.scrollTop = messageList.scrollHeight;
+                        // Double-check after a microtask
+                        queueMicrotask(() => {
+                            messageList.scrollTop = messageList.scrollHeight;
+                        });
+                    }
                 }
             }
-            // Always update chat list when new message arrives
-            await loadConversations();
+            // Update chat list without scrolling
+            debouncedLoadConversations();
         });
 
         // Handle message deletion
@@ -1220,41 +1219,6 @@ function debouncedLoadConversations() {
     }, 300); // 300ms debounce
 }
 
-// Update socket event handlers to use debounced updates
-socket.on('conversation_created', async (data) => {
-    console.log('New conversation created event received:', data);
-    debouncedLoadConversations();
-    
-    if (data.is_creator) {
-        console.log('Loading new conversation for creator');
-        await loadConversation(data.conversation_id);
-    } else {
-        console.log('New conversation notification for participant');
-        showToast(`New chat with ${data.name} created`, 'info');
-    }
-});
-
-socket.on('update_chat_list', async (data) => {
-    console.log('Received chat list update event:', data);
-    debouncedLoadConversations();
-});
-
-socket.on('message', async (data) => {
-    console.log('Received message:', data);
-    if (data.conversation_id === currentConversationId) {
-        const messageList = document.getElementById('message-list');
-        const messageDiv = createMessageElement(data);
-        if (messageDiv) {
-            messageList.appendChild(messageDiv);
-            messageList.scrollTo({
-                top: messageList.scrollHeight,
-                behavior: 'smooth'
-            });
-        }
-    }
-    debouncedLoadConversations();
-});
-
 async function loadConversation(conversationId) {
     console.log(`Starting to load conversation ${conversationId}...`);
     
@@ -1333,29 +1297,46 @@ async function loadConversation(conversationId) {
         console.log(`Loaded ${messages.length} messages for conversation ${conversationId}`);
 
         // --- Render Messages ---
-        messageList.innerHTML = '';
+        // Add a class to prevent any scroll behavior
+        messageList.classList.add('no-scroll');
+        messageList.style.cssText = 'position: relative; height: 100%; overflow: hidden;';
+
         if (!messages || messages.length === 0) {
-            const emptyMessage = document.createElement('div');
-            emptyMessage.className = 'p-4 text-center text-gray-500 italic system-message';
-            emptyMessage.textContent = 'No messages yet. Be the first to say hello!';
-            messageList.appendChild(emptyMessage);
+            messageList.innerHTML = '<div class="p-4 text-center text-gray-500 italic system-message">No messages yet. Be the first to say hello!</div>';
         } else {
             // Sort messages by timestamp to ensure correct order
             messages.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+            
+            // Create a document fragment for better performance
+            const fragment = document.createDocumentFragment();
+            
+            // Append all messages to fragment
             messages.forEach(msg => {
                 const messageDiv = createMessageElement(msg);
                 if (messageDiv) {
-                    messageList.appendChild(messageDiv);
+                    fragment.appendChild(messageDiv);
                 }
             });
-            // Scroll to bottom smoothly after messages are loaded
-            setTimeout(() => {
-                messageList.scrollTo({
-                    top: messageList.scrollHeight,
-                    behavior: 'smooth'
-                });
-            }, 100);
+            
+            // Clear and append all messages at once
+            messageList.innerHTML = '';
+            messageList.appendChild(fragment);
         }
+
+        // Force a reflow
+        messageList.offsetHeight;
+
+        // Remove the no-scroll class and restore normal styling
+        messageList.classList.remove('no-scroll');
+        messageList.style.cssText = '';
+
+        // Immediately set scroll to bottom
+        messageList.scrollTop = messageList.scrollHeight;
+
+        // Double-check scroll position after a microtask
+        queueMicrotask(() => {
+            messageList.scrollTop = messageList.scrollHeight;
+        });
 
         // --- Update Conversation Header --- 
         const convData = conversations.find(c => c.id === conversationId);
@@ -1629,11 +1610,8 @@ async function handleSendMessage() {
             messageElement.querySelector('.message')?.classList.add('pending');
             const messageList = document.getElementById('message-list');
             messageList.appendChild(messageElement);
-            // Scroll to bottom smoothly
-            messageList.scrollTo({
-                top: messageList.scrollHeight,
-                behavior: 'smooth'
-            });
+            // Always scroll to bottom for sent messages
+            messageList.scrollTop = messageList.scrollHeight;
         }
 
         messageInput.value = '';
@@ -1766,3 +1744,16 @@ export {
     renderChatList, // Export if needed for socket updates
     showToast // Export showToast if it's defined here
 };
+
+// Add this CSS to your stylesheet or create a style element
+const style = document.createElement('style');
+style.textContent = `
+    .no-scroll {
+        scroll-behavior: auto !important;
+        overflow: hidden !important;
+    }
+    #message-list {
+        scroll-behavior: auto !important;
+    }
+`;
+document.head.appendChild(style);
