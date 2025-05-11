@@ -37,6 +37,7 @@ import {
     currentCall as webRTCCallState, 
     updateWebRTCUI 
 } from './webrtc.js';
+import { setupAIButtons } from './aiHandlers.js';
 
 // --- Global Variables ---
 let currentConversationId = null;
@@ -352,6 +353,9 @@ document.addEventListener('DOMContentLoaded', async () => {
                 console.error("initMessageInteractions function not found!");
             }
 
+            // Initialize AI button handlers
+            setupAIButtons();
+
             console.log('Chat initialized successfully.');
 
         } catch (error) {
@@ -612,7 +616,6 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
 
             newChatCreate.disabled = true; // Prevent double clicks
-            showToast("Creating chat...", "info");
 
             try {
                 const token = localStorage.getItem('token');
@@ -806,7 +809,6 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
 
             newGroupCreate.disabled = true;
-            showToast("Creating group...", "info");
 
             const allParticipantIds = [currentUserId, ...participantIds];
             const uniqueParticipantIds = [...new Set(allParticipantIds)]; // Ensure uniqueness

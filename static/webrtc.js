@@ -348,7 +348,6 @@ async function getMedia() {
 
     // Create audio elements if they don't exist
     if (!ui.localAudioEl) {
-        console.log("Creating local audio element");
         const localAudio = document.createElement('audio');
         localAudio.id = 'local-audio';
         localAudio.autoplay = true;
