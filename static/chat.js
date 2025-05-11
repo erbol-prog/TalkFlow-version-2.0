@@ -31,13 +31,20 @@ import { initializeSocket, joinConversation, connected_users } from './socket.js
 import { showProfile } from './profile.js';
 import { initMessageInteractions, getReplyData } from './messageInteractions.js'; // Removed startReply import
 // --- ADD WEBRTC IMPORTS ---
-import { initializeWebRTC, startCall, currentCall as webRTCCallState, updateWebRTCUI } from './webrtc.js';
+import { 
+    initializeWebRTC, 
+    startCall,  // Import startCall directly since that's what webrtc.js exports
+    currentCall as webRTCCallState, 
+    updateWebRTCUI 
+} from './webrtc.js';
 
 // --- Global Variables ---
 let currentConversationId = null;
 let currentUserId = null;
+let currentUsername = null;
 let conversations = [];
 let userData = null;
+let socket = null;
 
 // --- DOM Element Variables (Declare here, assign in DOMContentLoaded) ---
 let chatSection = null;
@@ -65,13 +72,37 @@ async function ensureSocketInitialized() {
             if (!socket) {
                 console.error('Failed to initialize socket');
                 return null;
+        // If socket exists but is disconnected, try to reconnect
+        if (socket) {
+            console.log('Socket exists but disconnected, attempting to reconnect...');
+            try {
+                socket = await initializeSocket();
+                if (!socket || !socket.connected) {
+                    throw new Error('Failed to reconnect socket');
+                }
+                return socket;
+            } catch (error) {
+                console.error('Socket reconnection failed:', error);
+                // If reconnection fails, try a fresh initialization
+                socket = null;
             }
-        } catch (error) {
-            console.error('Error initializing socket:', error);
-            return null;
         }
+
+        // Create new socket connection
+        console.log('Initializing new socket connection...');
+        socket = await initializeSocket();
+        
+        if (!socket || !socket.connected) {
+            throw new Error('Socket initialization failed - no connection established');
+        }
+
+        console.log('Socket successfully initialized and connected');
+        return socket;
+    } catch (error) {
+        console.error('Socket initialization error:', error);
+        showToast('Connection error. Please refresh the page.', 'error');
+        throw error; // Re-throw to let caller handle the error
     }
-    return socket;
 }
 
 // Setup socket listeners
@@ -98,7 +129,10 @@ async function setupSocketListeners() {
                 const messageDiv = createMessageElement(data);
                 if (messageDiv) {
                     messageList.appendChild(messageDiv);
-                    messageList.scrollTop = messageList.scrollHeight;
+                    messageList.scrollTo({
+                        top: messageList.scrollHeight,
+                        behavior: 'smooth'
+                    });
                 }
             }
             loadConversations();
@@ -149,542 +183,411 @@ async function setupSocketListeners() {
     }
 }
 
-// Initialize socket when the module loads
-document.addEventListener('DOMContentLoaded', async () => {
-    const token = localStorage.getItem('token');
-    if (token) {
-        try {
-            await setupSocketListeners();
-        } catch (error) {
-            console.error('Error initializing socket on page load:', error);
-        }
-    }
-});
-
-// --- Helper function for AI API calls ---
-async function callAiFeature(endpoint, text, targetLanguage = null) {
-    const token = localStorage.getItem('token');
-    if (!token) {
-        showToast("Authentication error. Please log in again.", "error");
-        return null;
-    }
-
-    const body = targetLanguage ? { text, target_language: targetLanguage } : { text };
-
+// Initialize WebRTC when chat is loaded
+async function initializeChatWebRTC() {
     try {
-        const response = await fetch(`/ai/${endpoint}`, {
-            method: 'POST',
-            headers: {
-                'Authorization': `Bearer ${token}`,
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify(body)
-        });
-
-        if (!response.ok) {
-            const errorData = await response.json().catch(() => ({ detail: 'Unknown AI error' }));
-            throw new Error(errorData.detail || `AI request failed: ${response.statusText}`);
-        }
-
-        const data = await response.json();
-        return data.result; // Assuming backend returns { "result": "..." }
-
-    } catch (error) {
-        console.error(`Error calling AI feature ${endpoint}:`, error);
-        showToast(`AI Error: ${error.message}`, "error");
-        return null;
-    }
-}
-
-// --- Function to handle AI button clicks ---
-// Needs access to button variables, ensure they are passed or accessible
-async function handleAiButtonClick(button, endpoint, targetLanguage = null) {
-    // Get buttons inside the function or ensure they are accessible from the scope where this is called
-    const fixGrammarBtn = document.getElementById('fix-grammar-btn');
-    const completeSentenceBtn = document.getElementById('complete-sentence-btn');
-    const translateBtn = document.getElementById('translate-btn');
-    const messageInput = document.getElementById('message-input'); // Also get messageInput here
-
-    if (!messageInput || !button) return;
-
-    const originalText = messageInput.value;
-    if (!originalText.trim()) return; // Don't call if input is empty
-
-    // Disable all AI buttons during processing
-    fixGrammarBtn.disabled = true;
-    completeSentenceBtn.disabled = true;
-    translateBtn.disabled = true;
-    button.innerHTML = '<svg class="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>'; // Loading spinner
-
-    const result = await callAiFeature(endpoint, originalText, targetLanguage);
-
-    // Re-enable buttons and restore icon
-    const hasTextNow = messageInput.value.trim().length > 0;
-    if (fixGrammarBtn) fixGrammarBtn.disabled = !hasTextNow; // Re-enable based on current input state
-    if (completeSentenceBtn) completeSentenceBtn.disabled = !hasTextNow;
-    if (translateBtn) translateBtn.disabled = !hasTextNow;
-    // Restore original icon (replace spinner) - requires storing original icons or re-querying
-    // Simple approach: just remove spinner and let CSS handle original icon if it's background/pseudo
-    // Better: Store original innerHTML or use specific classes
-    // For now, let's assume the original SVG is still there but hidden, or we reset it manually
-    // This part needs refinement based on how icons are implemented in index.html
-    // Example reset (assuming SVGs are direct children):
-    if (button === fixGrammarBtn) button.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.196-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" /></svg>';
-    if (button === completeSentenceBtn) button.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M17 8l4 4m0 0l-4 4m4-4H3" /></svg>';
-    if (button === translateBtn) button.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 5h12M9 3v2m0 4V5m0 4v2m0 4v2m3-10v10m0 4v2m4-14v14m0 4v2m4 0h2m-2-4h2m-2-4h2m-2-4h2m-2-4h2" /></svg>';
-
-
-    if (result !== null) {
-        messageInput.value = result; // Update input field with the result
-        messageInput.focus(); // Keep focus on input
-        // Trigger input event to potentially re-enable buttons if needed (e.g., if result is empty)
-        messageInput.dispatchEvent(new Event('input'));
-    } else {
-        // If error, keep original text
-        messageInput.value = originalText;
-    }
-}
-
-
-document.addEventListener('DOMContentLoaded', async () => {
-    // --- First assign all DOM elements ---
-    chatSection = document.getElementById('chat');
-    profileSection = document.getElementById('profile');
-    welcomeSection = document.getElementById('welcome');
-    signinSection = document.getElementById('signin');
-    signupSection = document.getElementById('signup');
-    messageList = document.getElementById('message-list');
-    messageInput = document.getElementById('message-input');
-    conversationNameEl = document.getElementById('conversation-name');
-    conversationAvatarEl = document.getElementById('conversation-avatar');
-    callBtn = document.getElementById('call-btn');
-    localAudioElement = document.getElementById('local-audio');
-    remoteAudioElement = document.getElementById('remote-audio');
-
-    // --- Get AI button elements ---
-    const fixGrammarBtn = document.getElementById('fix-grammar-btn');
-    const completeSentenceBtn = document.getElementById('complete-sentence-btn');
-    const translateBtn = document.getElementById('translate-btn');
-
-    // --- Setup AI buttons state based on input ---
-    if (messageInput && fixGrammarBtn && completeSentenceBtn && translateBtn) {
-        // Function to update button states
-        const updateAIButtonStates = () => {
-            const hasText = messageInput.value.trim().length > 0;
-            fixGrammarBtn.disabled = !hasText;
-            completeSentenceBtn.disabled = !hasText;
-            translateBtn.disabled = !hasText;
-
-            // Add visual indication of disabled state
-            [fixGrammarBtn, completeSentenceBtn, translateBtn].forEach(btn => {
-                if (hasText) {
-                    btn.classList.remove('opacity-50', 'cursor-not-allowed');
-                } else {
-                    btn.classList.add('opacity-50', 'cursor-not-allowed');
-                }
-            });
+        console.log('Initializing chat WebRTC...');
+        
+        // Get all required UI elements
+        const uiElements = {
+            callBtn: document.getElementById('call-btn'),
+            callStatusDiv: document.getElementById('call-status'),
+            callStatusText: document.getElementById('call-status-text'),
+            hangUpBtn: document.getElementById('hang-up-btn'),
+            incomingCallModal: document.getElementById('incoming-call-modal'),
+            callerNameEl: document.getElementById('caller-name'),
+            callerAvatarEl: document.getElementById('caller-avatar'),
+            acceptCallBtn: document.getElementById('accept-call-btn'),
+            rejectCallBtn: document.getElementById('reject-call-btn'),
+            localAudioElement: document.getElementById('local-audio'),
+            remoteAudioElement: document.getElementById('remote-audio'),
+            activeCallModal: document.getElementById('active-call-modal'),
+            activeCallAvatar: document.getElementById('active-call-avatar'),
+            activeCallUsername: document.getElementById('active-call-username'),
+            activeCallTimer: document.getElementById('active-call-timer'),
+            muteCallBtn: document.getElementById('mute-call-btn'),
+            activeHangUpBtn: document.getElementById('active-hang-up-btn'),
+            micIconUnmuted: document.getElementById('mic-icon-unmuted'),
+            micIconMuted: document.getElementById('mic-icon-muted')
         };
 
-        // Add event listener for input changes
-        messageInput.addEventListener('input', updateAIButtonStates);
-
-        // Initial button state check
-        updateAIButtonStates();
-
-        console.log("AI button listeners configured successfully");
-    } else {
-        console.warn("Failed to initialize AI button listeners - one or more elements not found");
-    }
-
-    // --- Set up AI Button Click Handlers ---
-    if (fixGrammarBtn) {
-        fixGrammarBtn.addEventListener('click', () => {
-            if (!messageInput.value.trim()) return; // Extra safety check
-            handleAiButtonClick(fixGrammarBtn, 'fix-grammar');
-        });
-    }
-
-    if (completeSentenceBtn) {
-        completeSentenceBtn.addEventListener('click', () => {
-            if (!messageInput.value.trim()) return; // Extra safety check
-            handleAiButtonClick(completeSentenceBtn, 'complete-sentence');
-        });
-    }
-
-    if (translateBtn) {
-        translateBtn.addEventListener('click', () => {
-            if (!messageInput.value.trim()) return; // Extra safety check
-            handleAiButtonClick(translateBtn, 'translate', 'English');
-        });
-    }
-
-    // --- Continue with the rest of initialization ---
-    // --- NEW: Assign active call modal elements --- 
-    const activeCallModal = document.getElementById('active-call-modal');
-    const activeCallAvatar = document.getElementById('active-call-avatar');
-    const activeCallUsername = document.getElementById('active-call-username');
-    const activeCallTimer = document.getElementById('active-call-timer');
-    const muteCallBtn = document.getElementById('mute-call-btn');
-    const activeHangUpBtn = document.getElementById('active-hang-up-btn');
-    const micIconUnmuted = document.getElementById('mic-icon-unmuted');
-    const micIconMuted = document.getElementById('mic-icon-muted');
-    // --- Also assign elements needed by WebRTC that were previously assigned elsewhere ---
-    const callStatusDiv = document.getElementById('call-status');
-    const callStatusText = document.getElementById('call-status-text');
-    const hangUpBtn = document.getElementById('hang-up-btn'); // Old status bar hangup
-    const incomingCallModal = document.getElementById('incoming-call-modal');
-    const callerNameEl = document.getElementById('caller-name');
-    const callerAvatarEl = document.getElementById('caller-avatar');
-    const acceptCallBtn = document.getElementById('accept-call-btn');
-    const rejectCallBtn = document.getElementById('reject-call-btn'); // Make sure this ID exists in HTML
-
-    // --- Define hideAllSections AFTER element assignments --- 
-    const hideAllSections = () => {
-        // Uses the variables assigned above
-        welcomeSection?.classList.add('hidden');
-        signinSection?.classList.add('hidden');
-        signupSection?.classList.add('hidden');
-        chatSection?.classList.add('hidden');
-        profileSection?.classList.add('hidden');
-    };
-
-    // --- Token Validation and Initialization ---
-    const token = localStorage.getItem('token');
-    console.log('Token found in localStorage:', token ? 'Yes' : 'No');
-
-    if (!token) {
-        console.log('No token found, showing welcome page');
-        welcomeSection?.classList.remove('hidden');
-        chatSection?.classList.add('hidden');
-        profileSection?.classList.add('hidden');
-        signinSection?.classList.add('hidden');
-        signupSection?.classList.add('hidden');
-        return;
-    }
-
-    try {
-        console.log('Validating token...');
-        const userResponse = await fetch('/auth/me', {
-            headers: { 'Authorization': `Bearer ${token}` }
-        });
-
-        if (!userResponse.ok) {
-            if (userResponse.status === 401) {
-                console.log('Token is invalid or expired.');
-                localStorage.removeItem('token');
-                throw new Error('Invalid token');
-            } else {
-                throw new Error(`Failed to fetch user data: ${userResponse.statusText}`);
-            }
+        // Initialize WebRTC with UI elements
+        const success = await initializeWebRTC(uiElements);
+        if (!success) {
+            throw new Error('Failed to initialize WebRTC');
         }
 
-        userData = await userResponse.json();
-        currentUserId = userData.id;
-        console.log('Current user:', userData);
-
-        // --- Initialization successful, NOW hide all and show chat ---
-        hideAllSections();
-        chatSection?.classList.remove('hidden');
-
-        // Initialize socket connection AFTER successful token validation
-        await ensureSocketInitialized();
-        await setupSocketListeners();
-
-        // Load initial conversations
-        await loadConversations();
-
-        // Setup message handlers and interactions
-        if (typeof setupMessageHandlers === 'function') {
-            setupMessageHandlers();
-        } else {
-            console.error("setupMessageHandlers function not found!");
-        }
-        if (typeof initMessageInteractions === 'function') {
-            initMessageInteractions();
-        } else {
-            console.error("initMessageInteractions function not found!");
-        }
-
-        // --- INITIALIZE WEBRTC ---
-        if (typeof initializeWebRTC === 'function') {
-            const webrtcInitParams = {
-                localAudioElement,
-                remoteAudioElement,
-                callBtn,
-                callStatusDiv: document.getElementById('call-status'),
-                callStatusText: document.getElementById('call-status-text'),
-                hangUpBtn: document.getElementById('hang-up-btn'),
-                incomingCallModal: document.getElementById('incoming-call-modal'),
-                callerNameEl: document.getElementById('caller-name'),
-                callerAvatarEl: document.getElementById('caller-avatar'),
-                acceptCallBtn: document.getElementById('accept-call-btn'),
-                rejectCallBtn: document.getElementById('reject-call-btn'),
-                activeCallModal: document.getElementById('active-call-modal'),
-                activeCallAvatar: document.getElementById('active-call-avatar'),
-                activeCallUsername: document.getElementById('active-call-username'),
-                activeCallTimer: document.getElementById('active-call-timer'),
-                muteCallBtn: document.getElementById('mute-call-btn'),
-                activeHangUpBtn: document.getElementById('active-hang-up-btn'),
-                micIconUnmuted: document.getElementById('mic-icon-unmuted'),
-                micIconMuted: document.getElementById('mic-icon-muted')
+        // Setup call button visibility update
+        if (uiElements.callBtn) {
+            const updateCallButtonVisibility = () => {
+                if (!currentConversationId) {
+                    uiElements.callBtn.classList.add('hidden');
+                    return;
+                }
+                
+                const conversation = conversations.find(c => c.id === currentConversationId);
+                if (!conversation) {
+                    uiElements.callBtn.classList.add('hidden');
+                    return;
+                }
+                
+                // Only show call button for 1-on-1 chats
+                uiElements.callBtn.classList.toggle('hidden', conversation.isGroup);
             };
-
-            const essentialElements = [localAudioElement, remoteAudioElement, callBtn, activeCallModal, muteCallBtn, activeHangUpBtn];
-            if (essentialElements.every(el => el)) {
-                initializeWebRTC(webrtcInitParams);
-            } else {
-                console.error("One or more essential WebRTC UI elements not found in chat.js. Cannot initialize WebRTC.");
-                showToast("Could not initialize audio calling feature (UI error).", "error");
+            
+            // Update call button visibility when conversation changes
+            // Instead of modifying selectConversation, we'll add a listener to the chat list
+            const chatList = document.getElementById('chat-list');
+            if (chatList) {
+                chatList.addEventListener('click', (e) => {
+                    const conversationElement = e.target.closest('[data-conversation-id]');
+                    if (conversationElement) {
+                        const conversationId = conversationElement.dataset.conversationId;
+                        if (conversationId) {
+                            updateCallButtonVisibility();
+                        }
+                    }
+                });
             }
-        } else {
-            console.error("initializeWebRTC function not found!");
+            
+            // Initial update
+            updateCallButtonVisibility();
         }
-
-        // Check initial input state for AI buttons
-        messageInput?.dispatchEvent(new Event('input'));
-
-        console.log('Chat initialized successfully.');
-
+        
+        console.log('Chat WebRTC initialization completed successfully');
+        return true;
     } catch (error) {
-        console.error('Initialization error:', error);
-        localStorage.removeItem('token');
-        hideAllSections();
-        welcomeSection?.classList.remove('hidden');
-        showToast('Session expired or invalid. Please log in again.', 'error');
-        return;
+        console.error('Error during chat WebRTC initialization:', error);
+        showToast('Call feature initialization failed: ' + error.message, 'error');
+        return false;
     }
+}
 
-    // --- Event Listeners Setup (Modal toggles, Search, Profile, etc.) ---
+// Initialize socket when the module loads
+document.addEventListener('DOMContentLoaded', async () => {
+    try {
+        // First assign all DOM elements
+        chatSection = document.getElementById('chat');
+        profileSection = document.getElementById('profile');
+        welcomeSection = document.getElementById('welcome');
+        signinSection = document.getElementById('signin');
+        signupSection = document.getElementById('signup');
+        messageList = document.getElementById('message-list');
+        messageInput = document.getElementById('message-input');
+        conversationNameEl = document.getElementById('conversation-name');
+        conversationAvatarEl = document.getElementById('conversation-avatar');
+        callBtn = document.getElementById('call-btn');
+        localAudioElement = document.getElementById('local-audio');
+        remoteAudioElement = document.getElementById('remote-audio');
 
-    const searchInput = document.getElementById('chat-search');
-    searchInput.addEventListener('input', () => {
-        const query = searchInput.value.toLowerCase().trim();
-        // Filter based on the 'conversations' array
-        const filteredConversations = conversations.filter(conv =>
-            conv.name.toLowerCase().includes(query) || // Check conversation name
-            (conv.participants || []).some(p => p.toLowerCase().includes(query)) // Check participant names if available
-        );
-        renderChatList(filteredConversations); // Re-render the list with filtered results
-    });
+        const token = localStorage.getItem('token');
+        console.log('Token found in localStorage:', token ? 'Yes' : 'No');
 
-    // Modals
-    const newConversationModal = document.getElementById('new-conversation-modal');
-    const newConversationBtn = document.getElementById('new-conversation-btn');
-    const menuModal = document.getElementById('menu-modal');
-    const menuBtn = document.getElementById('menu-btn');
-    const logoutBtn = document.getElementById('logout-btn');
-    const myProfileBtn = document.getElementById('my-profile-btn');
-    const newChatModal = document.getElementById('new-chat-modal');
-    const newChatBtn = document.getElementById('new-chat-btn');
-    const newGroupModal = document.getElementById('new-group-modal');
-    const newGroupBtn = document.getElementById('new-group-btn');
-
-    // Generic outside click handler for modals
-    document.addEventListener('click', (e) => {
-        // Close New Conversation Options Modal
-        if (newConversationModal && !newConversationModal.classList.contains('hidden') && !newConversationModal.contains(e.target) && e.target !== newConversationBtn) {
-            newConversationModal.classList.add('hidden');
-        }
-        // Close Main Menu Modal
-        if (menuModal && !menuModal.classList.contains('hidden') && !menuModal.contains(e.target) && e.target !== menuBtn && !menuBtn.contains(e.target) /* handle click on SVG inside button */) {
-            menuModal.classList.add('hidden');
-        }
-        // Close New Chat Modal
-        if (newChatModal && !newChatModal.classList.contains('hidden') && !newChatModal.querySelector('.bg-white').contains(e.target)) {
-            // newChatModal.classList.add('hidden'); // Optionally close on outside click
-        }
-        // Close New Group Modal
-        if (newGroupModal && !newGroupModal.classList.contains('hidden') && !newGroupModal.querySelector('.bg-white').contains(e.target)) {
-            // newGroupModal.classList.add('hidden'); // Optionally close on outside click
-        }
-    });
-
-    // Toggle Buttons
-    if (newConversationBtn && newConversationModal) {
-        newConversationBtn.addEventListener('click', (e) => {
-            e.stopPropagation(); // Prevent document click listener from closing it immediately
-            menuModal?.classList.add('hidden'); // Close other modal if open
-            newConversationModal.classList.toggle('hidden');
-        });
-    }
-
-    if (menuBtn && menuModal) {
-        menuBtn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            newConversationModal?.classList.add('hidden'); // Close other modal
-            menuModal.classList.toggle('hidden');
-            // Position menu modal near the button
-            const rect = menuBtn.getBoundingClientRect();
-            menuModal.style.position = 'fixed'; // Use fixed to position relative to viewport
-            menuModal.style.top = `${rect.bottom + 5}px`; // Below the button
-            menuModal.style.left = `${rect.left}px`; // Align left edge
-        });
-    }
-
-    // Menu Actions
-    if (logoutBtn) {
-        logoutBtn.addEventListener('click', () => {
-            localStorage.removeItem('token');
-            if (socket && socket.connected) {
-                socket.disconnect(); // Disconnect socket on logout
-            }
+        if (!token) {
+            console.log('No token found, showing welcome page');
             hideAllSections();
             welcomeSection?.classList.remove('hidden');
-            menuModal.classList.add('hidden'); // Close modal
-            showToast("You have been logged out.", "success");
-            console.log("Logged out successfully.");
-            // Reset state variables
-            currentUserId = null;
-            currentConversationId = null;
-            conversations = [];
-            document.getElementById('chat-list').innerHTML = '';
-            document.getElementById('message-list').innerHTML = '';
-            document.getElementById('conversation-name').textContent = 'Chat';
+            return;
+        }
 
-        });
-    }
+        try {
+            // First validate token and get user data
+            console.log('Validating token...');
+            const userResponse = await fetch('/auth/me', {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
 
-    if (myProfileBtn && menuModal) {
-        myProfileBtn.addEventListener('click', () => {
-            menuModal.classList.add('hidden');
-            if (typeof showProfile === 'function') {
-                console.log('Showing profile for current user:', currentUserId);
-                showProfile(currentUserId); // showProfile should handle hiding chat and showing profile
-            } else {
-                console.warn('showProfile function not found.');
-            }
-        });
-    }    // Profile loading from conversation header
-    const conversationHeader = document.getElementById('conversation-header');
-    if (conversationHeader) {
-        conversationHeader.addEventListener('click', async (event) => {
-            // Don't trigger profile view if clicking on the call button
-            if (event.target.closest('#call-btn')) return;
-
-            if (!currentConversationId) return;
-            const conversation = conversations.find(conv => conv.id === currentConversationId);
-            if (!conversation || !conversation.participants) return;
-
-            const token = localStorage.getItem('token'); // Needed for API calls
-            if (!token) return; // Should not happen if already logged in
-
-            // Get current user's username (needed to find the *other* participant)
-            let currentUsername = null;
-            try {
-                const meResponse = await fetch('/auth/me', { headers: { 'Authorization': `Bearer ${token}` } });
-                if (!meResponse.ok) throw new Error('Failed to get current user info');
-                const meData = await meResponse.json();
-                currentUsername = meData.username;
-            } catch (error) {
-                console.error("Error fetching current username:", error);
-                return;
-            }
-
-            // Find the *other* participant in a 1-on-1 chat
-            if (conversation.participants.length === 2) {
-                const otherParticipantUsername = conversation.participants.find(username => username !== currentUsername);
-                if (otherParticipantUsername) {
-                    try {
-                        // Fetch the other user's ID by username
-                        const userResponse = await fetch(`/auth/user/${otherParticipantUsername}`, {
-                            headers: { 'Authorization': `Bearer ${token}` }
-                        });
-                        if (!userResponse.ok) throw new Error(`Could not find user: ${otherParticipantUsername}`);
-                        const userData = await userResponse.json();
-
-                        // Show the other user's profile
-                        if (typeof showProfile === 'function') {
-                            console.log('Showing profile for other user:', userData.id);
-                            showProfile(userData.id); // showProfile handles UI changes
-                        } else {
-                            console.warn('showProfile function not found.');
-                        }
-
-                    } catch (error) {
-                        console.error('Error fetching/showing other user profile:', error);
-                        showToast(`Could not load profile for ${otherParticipantUsername}.`, 'error');
-                    }
-                }
-            } else {
-                console.log('Clicked header of a group chat or self-chat. No profile to show.');
-                // Optionally show group info modal here later
-            }
-        });
-    }
-
-
-    // --- New Chat / Group Modals ---
-    const newChatCancel = document.getElementById('new-chat-cancel');
-    const newChatCreate = document.getElementById('new-chat-create');
-    const newChatUsernameInput = document.getElementById('new-chat-username');
-    const userSuggestions = document.getElementById('user-suggestions');
-    let selectedUserIdForNewChat = null;
-    let searchTimeout;
-
-    if (newChatBtn && newChatModal) {
-        newChatBtn.addEventListener('click', () => {
-            newConversationModal.classList.add('hidden'); // Close options modal
-            newChatModal.classList.remove('hidden');
-            newChatUsernameInput.value = ''; // Clear input
-            userSuggestions.innerHTML = ''; // Clear suggestions
-            userSuggestions.classList.add('hidden'); // Hide suggestions box
-            selectedUserIdForNewChat = null; // Reset selected user
-            newChatUsernameInput.focus();
-        });
-    }
-
-    if (newChatCancel) {
-        newChatCancel.addEventListener('click', () => newChatModal.classList.add('hidden'));
-    }
-
-    newChatUsernameInput.addEventListener('input', () => {
-        clearTimeout(searchTimeout);
-        const query = newChatUsernameInput.value.trim();
-        userSuggestions.innerHTML = ''; // Clear previous
-        userSuggestions.classList.add('hidden');
-        selectedUserIdForNewChat = null; // Reset selection if user types again
-
-        if (query.length < 2) return; // Only search if query is long enough
-
-        userSuggestions.innerHTML = '<div class="p-2 text-gray-500 text-sm">Searching...</div>';
-        userSuggestions.classList.remove('hidden');
-
-        searchTimeout = setTimeout(async () => {
-            try {
-                const token = localStorage.getItem('token');
-                const response = await fetch(`/auth/users/search?query=${encodeURIComponent(query)}`, {
-                    headers: { 'Authorization': `Bearer ${token}` }
-                });
-                if (!response.ok) throw new Error('User search failed');
-
-                const users = await response.json();
-                userSuggestions.innerHTML = ''; // Clear "Searching..."
-
-                const currentUsername = document.getElementById('profile-username')?.textContent; // Get own username if profile was loaded
-
-                const filteredUsers = users.filter(user => user.id !== currentUserId); // Exclude self
-
-                if (filteredUsers.length === 0) {
-                    userSuggestions.innerHTML = '<div class="p-2 text-gray-500 text-sm">No users found.</div>';
+            if (!userResponse.ok) {
+                if (userResponse.status === 401) {
+                    console.log('Token is invalid or expired.');
+                    localStorage.removeItem('token');
+                    throw new Error('Invalid token');
                 } else {
-                    filteredUsers.forEach(user => {
-                        const suggestionDiv = document.createElement('div');
-                        // Added more padding, hover effect
-                        suggestionDiv.className = 'p-2 hover:bg-gray-100 cursor-pointer text-sm';
-                        suggestionDiv.textContent = user.username;
-                        suggestionDiv.addEventListener('click', () => {
-                            newChatUsernameInput.value = user.username; // Set input to selected user
-                            selectedUserIdForNewChat = user.id; // Store the ID
-                            userSuggestions.innerHTML = ''; // Clear suggestions
-                            userSuggestions.classList.add('hidden'); // Hide box
-                        });
-                        userSuggestions.appendChild(suggestionDiv);
-                    });
+                    throw new Error(`Failed to fetch user data: ${userResponse.statusText}`);
                 }
-            } catch (error) {
-                console.error('Error searching users:', error);
-                userSuggestions.innerHTML = '<div class="p-2 text-red-500 text-sm">Error searching.</div>';
             }
+
+            userData = await userResponse.json();
+            currentUserId = userData.id;
+            currentUsername = userData.username;
+            console.log('Current user:', userData);
+
+            // Initialize socket AFTER user data is loaded
+            const socket = await ensureSocketInitialized();
+            if (!socket) {
+                throw new Error('Failed to initialize socket connection');
+            }
+
+            // Setup socket listeners
+            await setupSocketListeners();
+
+            // --- Initialization successful, NOW hide all and show chat ---
+            hideAllSections();
+            chatSection?.classList.remove('hidden');
+
+            // Load initial conversations
+            await loadConversations();
+
+            // Initialize WebRTC AFTER socket is ready and all elements are loaded
+            const webrtcSuccess = await initializeChatWebRTC();
+            if (!webrtcSuccess) {
+                console.warn('WebRTC initialization failed, but continuing with chat functionality');
+            }
+
+            // Setup message handlers and interactions
+            if (typeof setupMessageHandlers === 'function') {
+                setupMessageHandlers();
+            } else {
+                console.error("setupMessageHandlers function not found!");
+            }
+            if (typeof initMessageInteractions === 'function') {
+                initMessageInteractions();
+            } else {
+                console.error("initMessageInteractions function not found!");
+            }
+
+            console.log('Chat initialized successfully.');
+
+        } catch (error) {
+            console.error('Error during initialization:', error);
+            localStorage.removeItem('token');
+            hideAllSections();
+            welcomeSection?.classList.remove('hidden');
+            showToast('Session expired or invalid. Please log in again.', 'error');
+            return;
+        }
+
+        // --- Event Listeners Setup (Modal toggles, Search, Profile, etc.) ---
+
+        const searchInput = document.getElementById('chat-search');
+        searchInput.addEventListener('input', () => {
+            const query = searchInput.value.toLowerCase().trim();
+            // Filter based on the 'conversations' array
+            const filteredConversations = conversations.filter(conv =>
+                conv.name.toLowerCase().includes(query) || // Check conversation name
+                (conv.participants || []).some(p => p.toLowerCase().includes(query)) // Check participant names if available
+            );
+            renderChatList(filteredConversations); // Re-render the list with filtered results
+        });
+
+        // Modals
+        const newConversationModal = document.getElementById('new-conversation-modal');
+        const newConversationBtn = document.getElementById('new-conversation-btn');
+        const menuModal = document.getElementById('menu-modal');
+        const menuBtn = document.getElementById('menu-btn');
+        const logoutBtn = document.getElementById('logout-btn');
+        const myProfileBtn = document.getElementById('my-profile-btn');
+        const newChatModal = document.getElementById('new-chat-modal');
+        const newChatBtn = document.getElementById('new-chat-btn');
+        const newGroupModal = document.getElementById('new-group-modal');
+        const newGroupBtn = document.getElementById('new-group-btn');
+
+        // Generic outside click handler for modals
+        document.addEventListener('click', (e) => {
+            // Close New Conversation Options Modal
+            if (newConversationModal && !newConversationModal.classList.contains('hidden') && !newConversationModal.contains(e.target) && e.target !== newConversationBtn) {
+                newConversationModal.classList.add('hidden');
+            }
+            // Close Main Menu Modal
+            if (menuModal && !menuModal.classList.contains('hidden') && !menuModal.contains(e.target) && e.target !== menuBtn && !menuBtn.contains(e.target) /* handle click on SVG inside button */) {
+                menuModal.classList.add('hidden');
+            }
+            // Close New Chat Modal
+            if (newChatModal && !newChatModal.classList.contains('hidden') && !newChatModal.querySelector('.bg-white').contains(e.target)) {
+                // newChatModal.classList.add('hidden'); // Optionally close on outside click
+            }
+            // Close New Group Modal
+            if (newGroupModal && !newGroupModal.classList.contains('hidden') && !newGroupModal.querySelector('.bg-white').contains(e.target)) {
+                // newGroupModal.classList.add('hidden'); // Optionally close on outside click
+            }
+        });
+
+        // Toggle Buttons
+        if (newConversationBtn && newConversationModal) {
+            newConversationBtn.addEventListener('click', (e) => {
+                e.stopPropagation(); // Prevent document click listener from closing it immediately
+                menuModal?.classList.add('hidden'); // Close other modal if open
+                newConversationModal.classList.toggle('hidden');
+            });
+        }
+
+        if (menuBtn && menuModal) {
+            menuBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                newConversationModal?.classList.add('hidden'); // Close other modal
+                menuModal.classList.toggle('hidden');
+                // Position menu modal near the button
+                const rect = menuBtn.getBoundingClientRect();
+                menuModal.style.position = 'fixed'; // Use fixed to position relative to viewport
+                menuModal.style.top = `${rect.bottom + 5}px`; // Below the button
+                menuModal.style.left = `${rect.left}px`; // Align left edge
+            });
+        }
+
+        // Menu Actions
+        if (logoutBtn) {
+            logoutBtn.addEventListener('click', () => {
+                localStorage.removeItem('token');
+                if (socket && socket.connected) {
+                    socket.disconnect(); // Disconnect socket on logout
+                }
+                hideAllSections();
+                welcomeSection?.classList.remove('hidden');
+                menuModal.classList.add('hidden'); // Close modal
+                showToast("You have been logged out.", "success");
+                console.log("Logged out successfully.");
+                // Reset state variables
+                currentUserId = null;
+                currentConversationId = null;
+                conversations = [];
+                document.getElementById('chat-list').innerHTML = '';
+                document.getElementById('message-list').innerHTML = '';
+                document.getElementById('conversation-name').textContent = 'Chat';
+
+            });
+        }
+
+        if (myProfileBtn && menuModal) {
+            myProfileBtn.addEventListener('click', () => {
+                menuModal.classList.add('hidden');
+                if (typeof showProfile === 'function') {
+                    console.log('Showing profile for current user:', currentUserId);
+                    showProfile(currentUserId); // showProfile should handle hiding chat and showing profile
+                } else {
+                    console.warn('showProfile function not found.');
+                }
+            });
+        }    // Profile loading from conversation header
+        const conversationHeader = document.getElementById('conversation-header');
+        if (conversationHeader) {
+            conversationHeader.addEventListener('click', async (event) => {
+                // Don't trigger profile view if clicking on the call button
+                if (event.target.closest('#call-btn')) return;
+
+                if (!currentConversationId) return;
+                const conversation = conversations.find(conv => conv.id === currentConversationId);
+                if (!conversation || !conversation.participants) return;
+
+                const token = localStorage.getItem('token'); // Needed for API calls
+                if (!token) return; // Should not happen if already logged in
+
+                // Get current user's username (needed to find the *other* participant)
+                let currentUsername = null;
+                try {
+                    const meResponse = await fetch('/auth/me', { headers: { 'Authorization': `Bearer ${token}` } });
+                    if (!meResponse.ok) throw new Error('Failed to get current user info');
+                    const meData = await meResponse.json();
+                    currentUsername = meData.username;
+                } catch (error) {
+                    console.error("Error fetching current username:", error);
+                    return;
+                }
+
+                // Find the *other* participant in a 1-on-1 chat
+                if (conversation.participants.length === 2) {
+                    const otherParticipantUsername = conversation.participants.find(username => username !== currentUsername);
+                    if (otherParticipantUsername) {
+                        try {
+                            // Fetch the other user's ID by username
+                            const userResponse = await fetch(`/auth/user/${otherParticipantUsername}`, {
+                                headers: { 'Authorization': `Bearer ${token}` }
+                            });
+                            if (!userResponse.ok) throw new Error(`Could not find user: ${otherParticipantUsername}`);
+                            const userData = await userResponse.json();
+
+                            // Show the other user's profile
+                            if (typeof showProfile === 'function') {
+                                console.log('Showing profile for other user:', userData.id);
+                                showProfile(userData.id); // showProfile handles UI changes
+                            } else {
+                                console.warn('showProfile function not found.');
+                            }
+
+                        } catch (error) {
+                            console.error('Error fetching/showing other user profile:', error);
+                            showToast(`Could not load profile for ${otherParticipantUsername}.`, 'error');
+                        }
+                    }
+                } else {
+                    console.log('Clicked header of a group chat or self-chat. No profile to show.');
+                    // Optionally show group info modal here later
+                }
+            });
+        }
+
+
+        // --- New Chat / Group Modals ---
+        const newChatCancel = document.getElementById('new-chat-cancel');
+        const newChatCreate = document.getElementById('new-chat-create');
+        const newChatUsernameInput = document.getElementById('new-chat-username');
+        const userSuggestions = document.getElementById('user-suggestions');
+        let selectedUserIdForNewChat = null;
+        let searchTimeout;
+
+        if (newChatBtn && newChatModal) {
+            newChatBtn.addEventListener('click', () => {
+                newConversationModal.classList.add('hidden'); // Close options modal
+                newChatModal.classList.remove('hidden');
+                newChatUsernameInput.value = ''; // Clear input
+                userSuggestions.innerHTML = ''; // Clear suggestions
+                userSuggestions.classList.add('hidden'); // Hide suggestions box
+                selectedUserIdForNewChat = null; // Reset selected user
+                newChatUsernameInput.focus();
+            });
+        }
+
+        if (newChatCancel) {
+            newChatCancel.addEventListener('click', () => newChatModal.classList.add('hidden'));
+        }
+
+        newChatUsernameInput.addEventListener('input', () => {
+            clearTimeout(searchTimeout);
+            const query = newChatUsernameInput.value.trim();
+            userSuggestions.innerHTML = ''; // Clear previous
+            userSuggestions.classList.add('hidden');
+            selectedUserIdForNewChat = null; // Reset selection if user types again
+
+            if (query.length < 2) return; // Only search if query is long enough
+
+            userSuggestions.innerHTML = '<div class="p-2 text-gray-500 text-sm">Searching...</div>';
+            userSuggestions.classList.remove('hidden');
+
+            searchTimeout = setTimeout(async () => {
+                try {
+                    const token = localStorage.getItem('token');
+                    const response = await fetch(`/auth/users/search?query=${encodeURIComponent(query)}`, {
+                        headers: { 'Authorization': `Bearer ${token}` }
+                    });
+                    if (!response.ok) throw new Error('User search failed');
+
+                    const users = await response.json();
+                    userSuggestions.innerHTML = ''; // Clear "Searching..."
+
+                    const currentUsername = document.getElementById('profile-username')?.textContent; // Get own username if profile was loaded
+
+                    const filteredUsers = users.filter(user => user.id !== currentUserId); // Exclude self
+
+                    if (filteredUsers.length === 0) {
+                        userSuggestions.innerHTML = '<div class="p-2 text-gray-500 text-sm">No users found.</div>';
+                    } else {
+                        filteredUsers.forEach(user => {
+                            const suggestionDiv = document.createElement('div');
+                            // Added more padding, hover effect
+                            suggestionDiv.className = 'p-2 hover:bg-gray-100 cursor-pointer text-sm';
+                            suggestionDiv.textContent = user.username;
+                            suggestionDiv.addEventListener('click', () => {
+                                newChatUsernameInput.value = user.username; // Set input to selected user
+                                selectedUserIdForNewChat = user.id; // Store the ID
+                                userSuggestions.innerHTML = ''; // Clear suggestions
+                                userSuggestions.classList.add('hidden'); // Hide box
+                            });
+                            userSuggestions.appendChild(suggestionDiv);
+                        });
+                    }
+                } catch (error) {
+                    console.error('Error searching users:', error);
+                    userSuggestions.innerHTML = '<div class="p-2 text-red-500 text-sm">Error searching.</div>';
+                }
         }, 300); // Debounce API call
     });
 
@@ -976,6 +879,12 @@ document.addEventListener('DOMContentLoaded', async () => {
         console.error("Call button element not found during listener setup.");
     }
 
+} catch (error) {
+    console.error('Error during initialization:', error);
+    hideAllSections();
+    welcomeSection?.classList.remove('hidden');
+    showToast('An error occurred. Please try again later.', 'error');
+}
 }); // End DOMContentLoaded
 
 // --- Core Chat Functions ---
@@ -1162,13 +1071,21 @@ async function loadConversation(conversationId) {
             emptyMessage.textContent = 'No messages yet. Be the first to say hello!';
             messageList.appendChild(emptyMessage);
         } else {
+            // Sort messages by timestamp to ensure correct order
+            messages.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
             messages.forEach(msg => {
                 const messageDiv = createMessageElement(msg);
                 if (messageDiv) {
-                    messageList.prepend(messageDiv);
+                    messageList.appendChild(messageDiv);
                 }
             });
-            messageList.scrollTop = messageList.scrollHeight;
+            // Scroll to bottom smoothly after messages are loaded
+            setTimeout(() => {
+                messageList.scrollTo({
+                    top: messageList.scrollHeight,
+                    behavior: 'smooth'
+                });
+            }, 100);
         }
 
         // --- Update Conversation Header --- 
@@ -1435,9 +1352,13 @@ async function handleSendMessage() {
         const messageElement = createMessageElement(optimisticMessage);
         if (messageElement) {
             messageElement.querySelector('.message')?.classList.add('pending');
-            document.getElementById('message-list').prepend(messageElement);
             const messageList = document.getElementById('message-list');
-            messageList.scrollTop = messageList.scrollHeight;
+            messageList.appendChild(messageElement);
+            // Scroll to bottom smoothly
+            messageList.scrollTo({
+                top: messageList.scrollHeight,
+                behavior: 'smooth'
+            });
         }
 
         messageInput.value = '';
@@ -1562,6 +1483,7 @@ function formatLastSeen(date) {
 export {
     currentConversationId,
     currentUserId,
+    currentUsername,
     conversations, // Make conversation list accessible if needed
     loadConversations,
     loadConversation,

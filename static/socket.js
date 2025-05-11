@@ -8,48 +8,115 @@ let activeRooms = []; // Track which conversation rooms we've joined
 let socketInitialized = false;
 let pendingMessages = [];
 
+// Track socket state globally
+let socketInitializationPromise = null;
+let socketConnectionTimeout = null;
+
 // Initialize socket connection
 export async function initializeSocket() {
+    // If we already have a socket initialization in progress, return that promise
+    if (socketInitializationPromise) {
+        console.log('Socket initialization already in progress, returning existing promise');
+        return socketInitializationPromise;
+    }
+
+    // If we have a connected socket, return it
     if (socket?.connected) {
+        console.log('Socket already connected, returning existing socket');
         return socket;
     }
 
-    console.log('Creating socket connection with token');
-    const token = localStorage.getItem('token');
-    if (!token) {
-        console.error('No token available for socket connection');
-        return null;
-    }
+    // Create new initialization promise
+    socketInitializationPromise = (async () => {
+        try {
+            console.log('Starting new socket initialization');
+            const token = localStorage.getItem('token');
+            if (!token) {
+                throw new Error('No authentication token available');
+            }
 
-    try {
-        // Import socket.io-client dynamically
-        const { io } = await import('https://cdn.socket.io/4.7.2/socket.io.esm.min.js');
+            // Clear any existing socket
+            if (socket) {
+                console.log('Cleaning up existing socket connection');
+                socket.removeAllListeners();
+                socket.disconnect();
+                socket = null;
+            }
 
-        socket = io({
-            auth: { token },
-            transports: ['websocket'],
-            reconnection: true,
-            reconnectionAttempts: 5,
-            reconnectionDelay: 1000
-        });
+            // Clear any existing timeout
+            if (socketConnectionTimeout) {
+                clearTimeout(socketConnectionTimeout);
+                socketConnectionTimeout = null;
+            }
 
-        socket.on('connect', () => {
-            console.log('Socket connected successfully');
-        });
+            // Import socket.io-client dynamically
+            const { io } = await import('https://cdn.socket.io/4.7.2/socket.io.esm.min.js');
 
-        socket.on('connect_error', (error) => {
-            console.error('Socket connection error:', error);
-        });
+            // Create new socket with connection timeout
+            socket = io({
+                auth: { token },
+                transports: ['websocket'],
+                reconnection: true,
+                reconnectionAttempts: 5,
+                reconnectionDelay: 1000,
+                timeout: 10000 // 10 second connection timeout
+            });
 
-        socket.on('disconnect', (reason) => {
-            console.log('Socket disconnected:', reason);
-        });
+            // Set up connection timeout
+            await new Promise((resolve, reject) => {
+                socketConnectionTimeout = setTimeout(() => {
+                    reject(new Error('Socket connection timeout'));
+                }, 10000);
 
-        return socket;
-    } catch (error) {
-        console.error('Error initializing socket:', error);
-        return null;
-    }
+                socket.once('connect', () => {
+                    clearTimeout(socketConnectionTimeout);
+                    console.log('Socket connected successfully');
+                    resolve();
+                });
+
+                socket.once('connect_error', (error) => {
+                    clearTimeout(socketConnectionTimeout);
+                    console.error('Socket connection error:', error);
+                    reject(error);
+                });
+            });
+
+            // Set up basic event listeners
+            socket.on('disconnect', (reason) => {
+                console.log('Socket disconnected:', reason);
+                if (reason === 'io server disconnect') {
+                    // Server initiated disconnect, try to reconnect
+                    socket.connect();
+                }
+            });
+
+            socket.on('error', (error) => {
+                console.error('Socket error:', error);
+            });
+
+            console.log('Socket initialization completed successfully');
+            return socket;
+
+        } catch (error) {
+            console.error('Socket initialization failed:', error);
+            // Clean up on failure
+            if (socket) {
+                socket.removeAllListeners();
+                socket.disconnect();
+                socket = null;
+            }
+            throw error;
+        } finally {
+            // Clear the initialization promise
+            socketInitializationPromise = null;
+            if (socketConnectionTimeout) {
+                clearTimeout(socketConnectionTimeout);
+                socketConnectionTimeout = null;
+            }
+        }
+    })();
+
+    return socketInitializationPromise;
 }
 
 // Function to join a conversation
