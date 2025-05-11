@@ -1,6 +1,6 @@
 from fastapi import FastAPI, Depends
 from fastapi.staticfiles import StaticFiles
-from .auth import router as auth_router, SECRET_KEY, ALGORITHM
+from .auth import router as auth_router, SECRET_KEY, ALGORITHM, create_initial_superadmin
 from .chat import router as chat_router
 from .ai_routes import router as ai_router
 from .admin_routes import router as admin_router
@@ -18,6 +18,13 @@ app = FastAPI()
 
 # Create database tables
 Base.metadata.create_all(bind=engine)
+
+# Create initial superadmin if it doesn't exist
+db = SessionLocal()
+try:
+    create_initial_superadmin(db)
+finally:
+    db.close()
 
 # Add CORS middleware (Place middleware setup early)
 app.add_middleware(

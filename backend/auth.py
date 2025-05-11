@@ -21,7 +21,7 @@ def verify_password(plain_password, hashed_password):
     return pwd_context.verify(plain_password, hashed_password)
 
 
-def get_password_hash(password):
+def get_password_hash(password: str) -> str:
     return pwd_context.hash(password)
 
 
@@ -166,3 +166,28 @@ def get_user_profile(
         )
 
     return profile_data
+
+
+def create_initial_superadmin(db: Session) -> None:
+    """Creates the initial superadmin user if no superadmin exists."""
+    # Check if any superadmin exists
+    existing_super_admin = db.query(User).filter(User.is_super_admin == True).first()
+    if existing_super_admin:
+        return
+    
+    # Create superadmin with default credentials
+    super_admin = User(
+        username="admin",
+        hashed_password=get_password_hash("admin"),
+        is_admin=True,
+        is_super_admin=True,
+        created_at=datetime.utcnow()
+    )
+    
+    try:
+        db.add(super_admin)
+        db.commit()
+        print("Initial superadmin user created successfully")
+    except Exception as e:
+        db.rollback()
+        print(f"Error creating initial superadmin: {e}")
