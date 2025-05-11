@@ -1,11 +1,23 @@
 import { currentUserId } from './chat.js';
 import { initializeSocket } from './socket.js';
+import { showToast } from './chat.js';
 
 // Global state
 const state = {
     selectedMessage: null,
     replyingToMessage: null,
     editingMessage: null
+};
+
+// Add translation state
+const translationState = {
+    currentMessage: null,
+    modal: null,
+    originalText: null,
+    languageSelect: null,
+    resultDiv: null,
+    closeBtn: null,
+    cancelBtn: null
 };
 
 // --- Define setupMessageHandlers earlier in the file --- 
@@ -341,25 +353,28 @@ function handleMessageClick(e, messageElement) {
 
     const deleteBtn = actionsMenu.querySelector('.delete');
     const editBtn = actionsMenu.querySelector('.edit');
+    const translateBtn = actionsMenu.querySelector('.translate');
     const isOwnMessage = state.selectedMessage.senderId === currentUserId;
     const isDeleted = messageElement.classList.contains('deleted');
 
     // Only show edit/delete for own, non-deleted messages
     if (editBtn) editBtn.style.display = (isOwnMessage && !isDeleted) ? 'flex' : 'none';
     if (deleteBtn) deleteBtn.style.display = (isOwnMessage && !isDeleted) ? 'flex' : 'none';
+    // Show translate button for all non-deleted messages
+    if (translateBtn) translateBtn.style.display = isDeleted ? 'none' : 'flex';
 
     // Position the menu relative to the message
     const messageRect = messageElement.getBoundingClientRect();
-    const menuRect = actionsMenu.getBoundingClientRect(); // Get menu dimensions *after* setting display
+    const menuRect = actionsMenu.getBoundingClientRect();
     const viewportWidth = window.innerWidth;
     const viewportHeight = window.innerHeight;
 
-    let menuTop = messageRect.top; // Align top with message top initially
-    let menuLeft = messageRect.left - menuRect.width - 10; // Position to the left of the message with 10px gap
+    let menuTop = messageRect.top;
+    let menuLeft = messageRect.left - menuRect.width - 10;
 
     // Adjust if menu goes off-screen left
     if (menuLeft < 10) {
-        menuLeft = 10; // Ensure minimum spacing from left edge
+        menuLeft = 10;
     }
 
     // Adjust if menu goes off-screen bottom
@@ -387,6 +402,15 @@ function handleMessageClick(e, messageElement) {
         }
         clearMessageSelection();
     };
+
+    if (translateBtn) {
+        translateBtn.onclick = () => {
+            if (state.selectedMessage && !isDeleted) {
+                showTranslationModal(messageElement);
+            }
+            clearMessageSelection();
+        };
+    }
 
     if (editBtn) {
         editBtn.onclick = () => {
@@ -570,6 +594,207 @@ function setupEditMessageModal() {
     }
 }
 
+// Function to handle language selection change
+async function handleLanguageChange() {
+    if (!translationState.originalText || !translationState.languageSelect || !translationState.resultDiv) {
+        console.error('Translation state is incomplete');
+        return;
+    }
+
+    const targetLanguage = translationState.languageSelect.value;
+    const resultDiv = translationState.resultDiv;
+    
+    // Show loading state with a better spinner
+    resultDiv.innerHTML = `
+        <div class="flex flex-col items-center justify-center h-full py-4 text-gray-600">
+            <svg class="animate-spin h-6 w-6 mb-2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
+            <span class="text-sm">Translating to ${targetLanguage === 'russian' ? 'Russian' : 'German'}...</span>
+        </div>
+    `;
+
+    try {
+        const token = localStorage.getItem('token');
+        if (!token) {
+            throw new Error('No authentication token found');
+        }
+
+        const response = await fetch('/ai/translate', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                text: translationState.originalText,
+                target_language: targetLanguage
+            })
+        });
+
+        if (!response.ok) {
+            const errorData = await response.json().catch(() => ({}));
+            throw new Error(errorData.detail || 'Translation request failed');
+        }
+
+        const data = await response.json();
+        if (!data.result) {
+            throw new Error('No translation result received');
+        }
+
+        // Show the translation with a nice fade-in effect
+        resultDiv.innerHTML = `
+            <div class="animate-fade-in p-3 text-gray-800">
+                ${data.result}
+            </div>
+        `;
+    } catch (error) {
+        console.error('Translation error:', error);
+        resultDiv.innerHTML = `
+            <div class="flex flex-col items-center justify-center h-full py-4 text-red-500">
+                <svg class="w-6 h-6 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <span class="text-sm text-center">${error.message || 'Failed to translate. Please try again.'}</span>
+            </div>
+        `;
+        showToast('Translation failed. Please try again.', 'error');
+    }
+}
+
+// Function to format timestamp
+function formatTimestamp(timestamp) {
+    if (!timestamp) return '';
+    const date = new Date(timestamp);
+    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
+// Function to show translation modal with immediate translation
+function showTranslationModal(messageElement) {
+    if (!messageElement) {
+        console.error('No message element provided');
+        return;
+    }
+    
+    const messageContent = messageElement.querySelector('.message-content')?.textContent;
+    if (!messageContent || messageContent === '[Message deleted]') {
+        showToast('Cannot translate deleted messages', 'error');
+        return;
+    }
+
+    // Store the message content
+    translationState.currentMessage = messageElement;
+    translationState.originalText = messageContent;
+
+    // Get modal elements
+    translationState.modal = document.getElementById('translation-modal');
+    translationState.originalDiv = document.getElementById('translation-original');
+    translationState.languageSelect = document.getElementById('translation-language');
+    translationState.resultDiv = document.getElementById('translation-result');
+    translationState.closeBtn = document.getElementById('translation-modal-close');
+    translationState.cancelBtn = document.getElementById('translation-modal-cancel');
+
+    if (!translationState.modal || !translationState.originalDiv || !translationState.languageSelect || 
+        !translationState.resultDiv || !translationState.closeBtn || !translationState.cancelBtn) {
+        console.error('Translation modal elements not found');
+        showToast('Error loading translation modal', 'error');
+        return;
+    }
+
+    // Set original message with better formatting
+    translationState.originalDiv.innerHTML = `
+        <div class="p-3 bg-gray-50 rounded-lg text-gray-800 break-words">
+            ${messageContent}
+        </div>
+    `;
+
+    // Show loading state immediately
+    translationState.resultDiv.innerHTML = `
+        <div class="flex flex-col items-center justify-center h-full py-4 text-gray-600">
+            <svg class="animate-spin h-6 w-6 mb-2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
+            <span class="text-sm">Translating to Russian...</span>
+        </div>
+    `;
+
+    // Add event listeners with error handling
+    try {
+        translationState.languageSelect.onchange = handleLanguageChange;
+        translationState.closeBtn.onclick = hideTranslationModal;
+        translationState.cancelBtn.onclick = hideTranslationModal;
+
+        // Show modal with animation
+        translationState.modal.classList.remove('hidden');
+        translationState.modal.classList.add('animate-fade-in');
+
+        // Trigger translation immediately
+        handleLanguageChange();
+    } catch (error) {
+        console.error('Error setting up translation modal:', error);
+        showToast('Error setting up translation modal', 'error');
+    }
+}
+
+// Function to hide translation modal
+function hideTranslationModal() {
+    if (translationState.modal) {
+        translationState.modal.classList.add('hidden');
+        // Clear state
+        translationState.currentMessage = null;
+        translationState.originalText = null;
+        // Remove event listeners
+        if (translationState.languageSelect) {
+            translationState.languageSelect.onchange = null;
+        }
+        if (translationState.closeBtn) {
+            translationState.closeBtn.onclick = null;
+        }
+        if (translationState.cancelBtn) {
+            translationState.cancelBtn.onclick = null;
+        }
+    }
+}
+
+// Function to create or update message element with timestamp
+function createMessageElement(message, isOwnMessage = false) {
+    const messageDiv = document.createElement('div');
+    messageDiv.className = `message ${isOwnMessage ? 'self-end' : 'self-start'}`;
+    messageDiv.dataset.messageId = message.id;
+    messageDiv.dataset.senderId = message.sender_id;
+
+    // Add timestamp to the message
+    const timestamp = formatTimestamp(message.timestamp || message.created_at);
+    
+    messageDiv.innerHTML = `
+        <div class="message-content">${message.content}</div>
+        <span class="message-timestamp">${timestamp}</span>
+    `;
+
+    // Add click handler
+    messageDiv.onclick = (e) => handleMessageClick(e, messageDiv);
+
+    return messageDiv;
+}
+
+// Update the socket message handler to include timestamps
+function setupSocketMessageHandler(socket) {
+    if (!socket) return;
+
+    socket.on('new_message', (message) => {
+        const messageList = document.getElementById('message-list');
+        if (!messageList) return;
+
+        const isOwnMessage = message.sender_id === currentUserId;
+        const messageElement = createMessageElement(message, isOwnMessage);
+        
+        messageList.appendChild(messageElement);
+        messageList.scrollTop = messageList.scrollHeight;
+    });
+}
+
 export {
     setupMessageHandlers,
     setupReplyUI,
@@ -578,5 +803,7 @@ export {
     clearMessageSelection,
     deleteMessage,
     editMessage,
-    getReplyingToMessage
+    getReplyingToMessage,
+    showTranslationModal,
+    hideTranslationModal
 };

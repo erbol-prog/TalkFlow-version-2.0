@@ -102,6 +102,15 @@ async def complete_sentence(input_data: TextInput = Body(...)):
 @router.post("/translate")
 async def translate_text(input_data: TranslateInput = Body(...)):
     """Translates the provided text to the target language."""
-    prompt = f'Translate the following text to russian and only return the translated text :\n\n"{input_data.text} "'
+    target_lang = input_data.target_language.lower()
+    
+    # Create appropriate prompt based on target language
+    if target_lang == "russian":
+        prompt = f'Translate the following text to Russian and only return the translated text:\n\n"{input_data.text}"'
+    elif target_lang == "german":
+        prompt = f'Translate the following text to German and only return the translated text:\n\n"{input_data.text}"'
+    else:
+        raise HTTPException(status_code=400, detail="Unsupported target language. Supported languages: Russian, German")
+    
     translated_text = await generate_ai_response(prompt)
     return {"result": translated_text.strip()}
