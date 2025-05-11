@@ -1093,7 +1093,7 @@ function createChatItem(conv) {
 
     chatItem.innerHTML = `
         <div class="relative mr-3">
-            <img src="https://ui-avatars.com/api/?name=${encodeURIComponent(displayName)}&background=random&size=40" 
+            <img src="https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(displayName)}" 
                  alt="${displayName}" 
                  class="w-10 h-10 rounded-full">
             ${unreadCount > 0 ? `
@@ -1344,7 +1344,8 @@ async function loadConversation(conversationId) {
             console.log('Updating conversation header with:', convData);
             conversationNameEl.textContent = convData.name;
             if (conversationAvatarEl) {
-                conversationAvatarEl.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(convData.name)}&background=random&size=40`;
+                conversationAvatarEl.src = `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(convData.name)}`;
+                conversationAvatarEl.alt = convData.name;
             }
 
             // --- Show/Hide Call Button --- 
