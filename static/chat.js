@@ -61,17 +61,23 @@ let localAudioElement = null;
 let remoteAudioElement = null;
 // ... add other frequently used elements if needed ...
 
-// Initialize socket when the module loads
-let socket = null;
+// Define hideAllSections at the top level
+function hideAllSections() {
+    welcomeSection?.classList.add('hidden');
+    signinSection?.classList.add('hidden');
+    signupSection?.classList.add('hidden');
+    chatSection?.classList.add('hidden');
+    profileSection?.classList.add('hidden');
+}
 
 // Function to ensure socket is initialized
 async function ensureSocketInitialized() {
-    if (!socket) {
-        try {
-            socket = await initializeSocket();
-            if (!socket) {
-                console.error('Failed to initialize socket');
-                return null;
+    try {
+        // If socket exists and is connected, return it
+        if (socket?.connected) {
+            return socket;
+        }
+
         // If socket exists but is disconnected, try to reconnect
         if (socket) {
             console.log('Socket exists but disconnected, attempting to reconnect...');
