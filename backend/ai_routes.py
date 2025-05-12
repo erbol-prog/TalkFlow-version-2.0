@@ -109,10 +109,8 @@ async def translate_text(input_data: TranslateInput = Body(...)):
         prompt = f'Translate the following text to Russian and only return the translated text:\n\n"{input_data.text}"'
     elif target_lang == "german":
         prompt = f'Translate the following text to German and only return the translated text:\n\n"{input_data.text}"'
-    elif target_lang == "kyrgyz":
-        prompt = f'Translate the following text to Kyrgyz (Кыргызча) and only return the translated text:\n\n"{input_data.text}"'
     else:
-        raise HTTPException(status_code=400, detail="Unsupported target language. Supported languages: Russian, German, Kyrgyz")
+        raise HTTPException(status_code=400, detail="Unsupported target language. Supported languages: Russian, German")
     
     translated_text = await generate_ai_response(prompt)
     return {"result": translated_text.strip()}

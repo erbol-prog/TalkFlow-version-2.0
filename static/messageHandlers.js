@@ -611,7 +611,7 @@ async function handleLanguageChange() {
                 <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                 <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
             </svg>
-            <span class="text-sm">Translating to ${targetLanguage === 'russian' ? 'Russian' : targetLanguage === 'german' ? 'German' : 'Kyrgyz'}...</span>
+            <span class="text-sm">Translating to ${targetLanguage === 'russian' ? 'Russian' : 'German'}...</span>
         </div>
     `;
 
@@ -672,62 +672,90 @@ function formatTimestamp(timestamp) {
 
 // Function to show translation modal with immediate translation
 function showTranslationModal(messageElement) {
-    const modal = document.getElementById('translation-modal');
-    const originalText = messageElement.querySelector('.message-content').textContent;
+    if (!messageElement) {
+        console.error('No message element provided');
+        return;
+    }
     
-    // Set the original message text
-    document.getElementById('translation-original').textContent = originalText;
-    
-    // Show the modal
-    modal.classList.remove('hidden');
+    const messageContent = messageElement.querySelector('.message-content')?.textContent;
+    if (!messageContent || messageContent === '[Message deleted]') {
+        showToast('Cannot translate deleted messages', 'error');
+        return;
+    }
 
-    // Add click outside handler
-    const handleOutsideClick = (e) => {
-        if (modal && !modal.querySelector('.bg-white').contains(e.target)) {
-            hideTranslationModal();
-            document.removeEventListener('click', handleOutsideClick);
-        }
-    };
+    // Store the message content
+    translationState.currentMessage = messageElement;
+    translationState.originalText = messageContent;
 
-    // Use setTimeout to prevent immediate trigger of the click event
-    setTimeout(() => {
-        document.addEventListener('click', handleOutsideClick);
-    }, 0);
+    // Get modal elements
+    translationState.modal = document.getElementById('translation-modal');
+    translationState.originalDiv = document.getElementById('translation-original');
+    translationState.languageSelect = document.getElementById('translation-language');
+    translationState.resultDiv = document.getElementById('translation-result');
+    translationState.closeBtn = document.getElementById('translation-modal-close');
+    translationState.cancelBtn = document.getElementById('translation-modal-cancel');
 
-    // Setup language change handler
-    const languageSelect = document.getElementById('translation-language');
-    languageSelect.addEventListener('change', handleLanguageChange);
+    if (!translationState.modal || !translationState.originalDiv || !translationState.languageSelect || 
+        !translationState.resultDiv || !translationState.closeBtn || !translationState.cancelBtn) {
+        console.error('Translation modal elements not found');
+        showToast('Error loading translation modal', 'error');
+        return;
+    }
 
-    // Setup close button handler
-    const closeBtn = document.getElementById('translation-modal-close');
-    const cancelBtn = document.getElementById('translation-modal-cancel');
-    
-    const cleanup = () => {
-        document.removeEventListener('click', handleOutsideClick);
-        languageSelect.removeEventListener('change', handleLanguageChange);
-        closeBtn.removeEventListener('click', hideTranslationModal);
-        cancelBtn.removeEventListener('click', hideTranslationModal);
-    };
+    // Set original message with better formatting
+    translationState.originalDiv.innerHTML = `
+        <div class="p-3 bg-gray-50 rounded-lg text-gray-800 break-words">
+            ${messageContent}
+        </div>
+    `;
 
-    closeBtn.addEventListener('click', () => {
-        hideTranslationModal();
-        cleanup();
-    });
-    
-    cancelBtn.addEventListener('click', () => {
-        hideTranslationModal();
-        cleanup();
-    });
+    // Show loading state immediately
+    translationState.resultDiv.innerHTML = `
+        <div class="flex flex-col items-center justify-center h-full py-4 text-gray-600">
+            <svg class="animate-spin h-6 w-6 mb-2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
+            <span class="text-sm">Translating to Russian...</span>
+        </div>
+    `;
 
-    // Initial translation
-    handleLanguageChange();
+    // Add event listeners with error handling
+    try {
+        translationState.languageSelect.onchange = handleLanguageChange;
+        translationState.closeBtn.onclick = hideTranslationModal;
+        translationState.cancelBtn.onclick = hideTranslationModal;
+
+        // Show modal with animation
+        translationState.modal.classList.remove('hidden');
+        translationState.modal.classList.add('animate-fade-in');
+
+        // Trigger translation immediately
+        handleLanguageChange();
+    } catch (error) {
+        console.error('Error setting up translation modal:', error);
+        showToast('Error setting up translation modal', 'error');
+    }
 }
 
+// Function to hide translation modal
 function hideTranslationModal() {
-    const modal = document.getElementById('translation-modal');
-    modal.classList.add('hidden');
-    // Clear the translation result
-    document.getElementById('translation-result').innerHTML = '';
+    if (translationState.modal) {
+        translationState.modal.classList.add('hidden');
+        // Clear state
+        translationState.currentMessage = null;
+        translationState.originalText = null;
+        // Remove event listeners
+        if (translationState.languageSelect) {
+            translationState.languageSelect.onchange = null;
+        }
+        if (translationState.closeBtn) {
+            translationState.closeBtn.onclick = null;
+        }
+        if (translationState.cancelBtn) {
+            translationState.cancelBtn.onclick = null;
+        }
+    }
 }
 
 // Function to create or update message element with timestamp
